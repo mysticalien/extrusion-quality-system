@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// rm later
-
 // MemoryAlertStore stores alert events in memory.
 // It is used only for the first prototype before PostgreSQL integration.
 type MemoryAlertStore struct {
@@ -51,6 +49,22 @@ func (s *MemoryAlertStore) All() []domain.AlertEvent {
 
 	result := make([]domain.AlertEvent, len(s.alerts))
 	copy(result, s.alerts)
+
+	return result
+}
+
+// Active returns all alerts that still affect the current process state.
+func (s *MemoryAlertStore) Active() []domain.AlertEvent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]domain.AlertEvent, 0)
+
+	for _, alert := range s.alerts {
+		if alert.Status == domain.AlertStatusActive || alert.Status == domain.AlertStatusAcknowledged {
+			result = append(result, alert)
+		}
+	}
 
 	return result
 }

@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"extrusion-quality-system/internal/analytics"
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/storage"
 	"fmt"
@@ -31,7 +32,8 @@ type TelemetryCreateResponse struct {
 	AlertCreated  bool                  `json:"alertCreated"`
 	AlertID       *domain.AlertID       `json:"alertId,omitempty"`
 	AlertLevel    *domain.AlertLevel    `json:"alertLevel,omitempty"`
-	QualityIndex  int                   `json:"qualityIndex"`
+	QualityIndex  float64               `json:"qualityIndex"`
+	QualityState  domain.QualityState   `json:"qualityState"`
 }
 
 // TelemetryHandler handles telemetry API requests.
@@ -116,7 +118,6 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	reading = h.store.Save(reading)
 
 	state := setpoint.Evaluate(reading.Value)
-	qualityIndex := approximateQualityIndex(state)
 
 	var alertID *domain.AlertID
 	var alertLevel *domain.AlertLevel
@@ -143,6 +144,8 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		alertLevel = &levelCopy
 	}
 
+	qualityIndex := analytics.CalculateQualityIndex(h.alertStore.Active())
+
 	h.logger.Info(
 		"telemetry received",
 		"parameterType", reading.ParameterType,
@@ -151,7 +154,8 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		"sourceId", reading.SourceID,
 		"state", state,
 		"alertCreated", shouldCreateAlert,
-		"qualityIndex", qualityIndex,
+		"qualityIndex", qualityIndex.Value,
+		"qualityState", qualityIndex.State,
 	)
 
 	response := TelemetryCreateResponse{
@@ -165,7 +169,8 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		AlertCreated:  shouldCreateAlert,
 		AlertID:       alertID,
 		AlertLevel:    alertLevel,
-		QualityIndex:  qualityIndex,
+		QualityIndex:  qualityIndex.Value,
+		QualityState:  qualityIndex.State,
 	}
 
 	writeJSON(w, http.StatusCreated, response)
@@ -190,17 +195,4 @@ func buildAlertMessage(reading domain.TelemetryReading, level domain.AlertLevel)
 		reading.Value,
 		reading.Unit,
 	)
-}
-
-func approximateQualityIndex(state domain.ParameterState) int {
-	switch state {
-	case domain.ParameterStateNormal:
-		return 100
-	case domain.ParameterStateWarning:
-		return 80
-	case domain.ParameterStateCritical:
-		return 50
-	default:
-		return 0
-	}
 }

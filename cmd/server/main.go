@@ -48,6 +48,7 @@ func main() {
 
 	telemetryHandler := httpapi.NewTelemetryHandler(logger, telemetryStore, alertStore, setpoints)
 	eventHandler := httpapi.NewEventHandler(logger, alertStore)
+	qualityHandler := httpapi.NewQualityHandler(logger, alertStore)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", homeHandler)
@@ -55,6 +56,7 @@ func main() {
 	mux.HandleFunc("/api/telemetry", telemetryHandler.Create)
 	mux.HandleFunc("/api/events", eventHandler.List)
 	mux.HandleFunc("/api/events/", eventHandler.Action)
+	mux.HandleFunc("/api/quality/latest", qualityHandler.Latest)
 
 	server := &http.Server{
 		Addr:              ":8080",

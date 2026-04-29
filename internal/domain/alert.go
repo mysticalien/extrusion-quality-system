@@ -2,9 +2,10 @@ package domain
 
 import "time"
 
-type SourceID string
-
+// AlertID identifies an alert event.
 type AlertID int64
+
+// AlertLevel describes the severity of an alert event.
 type AlertLevel string
 
 const (
@@ -12,6 +13,7 @@ const (
 	AlertLevelCritical AlertLevel = "critical"
 )
 
+// AlertStatus describes the lifecycle state of an alert event.
 type AlertStatus string
 
 const (
@@ -34,10 +36,13 @@ type AlertEvent struct {
 	Message string `json:"message"`
 
 	CreatedAt time.Time `json:"createdAt"`
+
 	// AcknowledgedAt is set when an operator or technologist confirms the alert.
 	AcknowledgedAt *time.Time `json:"acknowledgedAt,omitempty"`
+
 	// AcknowledgedBy stores the user who confirmed the alert.
 	AcknowledgedBy *UserID `json:"acknowledgedBy,omitempty"`
+
 	// ResolvedAt is set when the parameter returns to an acceptable state.
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
 }

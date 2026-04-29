@@ -1,11 +1,11 @@
 package domain
 
-import (
-	"time"
-)
+import "time"
 
+// SetpointID identifies a setpoint configuration.
 type SetpointID int64
 
+// ParameterState describes the current parameter state relative to configured setpoints.
 type ParameterState string
 
 const (
@@ -29,41 +29,19 @@ type Setpoint struct {
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
-	UpdatedBy *UserID   `json:"updatedBy,omitempty"`
+
+	// UpdatedBy stores the user who last changed the setpoint configuration.
+	UpdatedBy *UserID `json:"updatedBy,omitempty"`
 }
 
-//func (s Setpoint) Evaluate(value float64) ParameterState {
-//	if value < s.CriticalMin || value > s.CriticalMax {
-//		return ParameterStateCritical
-//	}
-//
-//	if value < s.NormalMin || value > s.NormalMax {
-//		return ParameterStateWarning
-//	}
-//
-//	return ParameterStateNormal
-//}
-//
-//func (s Setpoint) Validate() error {
-//	if s.CriticalMin > s.WarningMin {
-//		return errors.New("criticalMin must be less than or equal to warningMin")
-//	}
-//
-//	if s.WarningMin > s.NormalMin {
-//		return errors.New("warningMin must be less than or equal to normalMin")
-//	}
-//
-//	if s.NormalMin > s.NormalMax {
-//		return errors.New("normalMin must be less than or equal to normalMax")
-//	}
-//
-//	if s.NormalMax > s.WarningMax {
-//		return errors.New("normalMax must be less than or equal to warningMax")
-//	}
-//
-//	if s.WarningMax > s.CriticalMax {
-//		return errors.New("warningMax must be less than or equal to criticalMax")
-//	}
-//
-//	return nil
-//}
+func (s Setpoint) Evaluate(value float64) ParameterState {
+	if value < s.WarningMin || value > s.WarningMax {
+		return ParameterStateCritical
+	}
+
+	if value < s.NormalMin || value > s.NormalMax {
+		return ParameterStateWarning
+	}
+
+	return ParameterStateNormal
+}

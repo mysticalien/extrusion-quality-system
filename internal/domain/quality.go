@@ -2,14 +2,16 @@ package domain
 
 import "time"
 
+// QualityIndexID identifies a calculated quality index value.
 type QualityIndexID int64
 
+// QualityState describes the overall extrusion process state based on the quality index.
 type QualityState string
 
 const (
 	QualityStateStable   QualityState = "stable"
-	QualityStateUnstable QualityState = "unstable"
 	QualityStateWarning  QualityState = "warning"
+	QualityStateUnstable QualityState = "unstable"
 	QualityStateCritical QualityState = "critical"
 )
 
@@ -21,46 +23,23 @@ type QualityIndex struct {
 
 	// ParameterPenalty is the penalty caused by deviations from technological setpoints.
 	ParameterPenalty float64 `json:"parameterPenalty"`
+
 	// AnomalyPenalty is the penalty caused by detected abnormal process behavior.
 	AnomalyPenalty float64 `json:"anomalyPenalty"`
 
 	CalculatedAt time.Time `json:"calculatedAt"`
 }
 
-//
-//func NewQualityIndex(value, parameterPenalty, anomalyPenalty float64, calculatedAt time.Time) QualityIndex {
-//	value = ClampQualityIndex(value)
-//
-//	return QualityIndex{
-//		Value:            value,
-//		State:            QualityStateFromValue(value),
-//		ParameterPenalty: parameterPenalty,
-//		AnomalyPenalty:   anomalyPenalty,
-//		CalculatedAt:     calculatedAt,
-//	}
-//}
-//
-//func ClampQualityIndex(value float64) float64 {
-//	if value < 0 {
-//		return 0
-//	}
-//
-//	if value > 100 {
-//		return 100
-//	}
-//
-//	return value
-//}
-//
-//func QualityStateFromValue(value float64) QualityState {
-//	switch {
-//	case value >= 80:
-//		return QualityStateStable
-//	case value >= 60:
-//		return QualityStateUnstable
-//	case value >= 40:
-//		return QualityStateWarning
-//	default:
-//		return QualityStateCritical
-//	}
-//}
+// QualityStateFromValue returns the overall quality state for the given quality index value.
+func QualityStateFromValue(value float64) QualityState {
+	switch {
+	case value >= 80:
+		return QualityStateStable
+	case value >= 60:
+		return QualityStateWarning
+	case value >= 40:
+		return QualityStateUnstable
+	default:
+		return QualityStateCritical
+	}
+}

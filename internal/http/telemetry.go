@@ -7,7 +7,7 @@ import (
 	"extrusion-quality-system/internal/storage"
 	"fmt"
 	"log/slog"
-	"net/http"
+	nethttp "net/http"
 	"time"
 )
 
@@ -38,33 +38,36 @@ type TelemetryCreateResponse struct {
 
 // TelemetryHandler handles telemetry API requests.
 type TelemetryHandler struct {
-	logger     *slog.Logger
-	store      *storage.MemoryTelemetryStore
-	alertStore *storage.MemoryAlertStore
-	setpoints  map[domain.ParameterType]domain.Setpoint
+	logger         *slog.Logger
+	telemetryStore storage.TelemetryStore
+	alertStore     storage.AlertStore
+	qualityStore   storage.QualityStore
+	setpoints      map[domain.ParameterType]domain.Setpoint
 }
 
 // NewTelemetryHandler creates a telemetry HTTP handler.
 func NewTelemetryHandler(
 	logger *slog.Logger,
-	store *storage.MemoryTelemetryStore,
-	alertStore *storage.MemoryAlertStore,
+	telemetryStore storage.TelemetryStore,
+	alertStore storage.AlertStore,
+	qualityStore storage.QualityStore,
 	setpoints map[domain.ParameterType]domain.Setpoint,
 ) *TelemetryHandler {
 	return &TelemetryHandler{
-		logger:     logger,
-		store:      store,
-		alertStore: alertStore,
-		setpoints:  setpoints,
+		logger:         logger,
+		telemetryStore: telemetryStore,
+		alertStore:     alertStore,
+		qualityStore:   qualityStore,
+		setpoints:      setpoints,
 	}
 }
 
-// Create receives a telemetry reading, stores it in memory, evaluates setpoints,
-// creates an alert event if needed, and returns the processing result.
-func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+// Create receives a telemetry reading, stores it, evaluates setpoints,
+// creates an alert event if needed, saves the quality index, and returns the processing result.
+func (h *TelemetryHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if r.Method != nethttp.MethodPost {
+		w.Header().Set("Allow", nethttp.MethodPost)
+		writeError(w, nethttp.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -76,33 +79,33 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		writeError(w, nethttp.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
 	setpoint, ok := h.setpoints[req.ParameterType]
 	if !ok {
-		writeError(w, http.StatusBadRequest, "unknown parameterType")
+		writeError(w, nethttp.StatusBadRequest, "unknown parameterType")
 		return
 	}
 
 	if req.Unit == "" {
-		writeError(w, http.StatusBadRequest, "unit is required")
+		writeError(w, nethttp.StatusBadRequest, "unit is required")
 		return
 	}
 
 	if req.Unit != setpoint.Unit {
-		writeError(w, http.StatusBadRequest, "unit does not match parameterType")
+		writeError(w, nethttp.StatusBadRequest, "unit does not match parameterType")
 		return
 	}
 
 	if req.SourceID == "" {
-		writeError(w, http.StatusBadRequest, "sourceId is required")
+		writeError(w, nethttp.StatusBadRequest, "sourceId is required")
 		return
 	}
 
 	if req.MeasuredAt.IsZero() {
-		writeError(w, http.StatusBadRequest, "measuredAt is required")
+		writeError(w, nethttp.StatusBadRequest, "measuredAt is required")
 		return
 	}
 
@@ -115,7 +118,12 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:     time.Now().UTC(),
 	}
 
-	reading = h.store.Save(reading)
+	reading, err := h.telemetryStore.Save(reading)
+	if err != nil {
+		h.logger.Error("save telemetry reading failed", "error", err)
+		writeError(w, nethttp.StatusInternalServerError, "failed to save telemetry reading")
+		return
+	}
 
 	state := setpoint.Evaluate(reading.Value)
 
@@ -135,7 +143,12 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:     time.Now().UTC(),
 		}
 
-		alert = h.alertStore.Create(alert)
+		alert, err = h.alertStore.Create(alert)
+		if err != nil {
+			h.logger.Error("save alert event failed", "error", err)
+			writeError(w, nethttp.StatusInternalServerError, "failed to save alert event")
+			return
+		}
 
 		id := alert.ID
 		alertID = &id
@@ -144,7 +157,21 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		alertLevel = &levelCopy
 	}
 
-	qualityIndex := analytics.CalculateQualityIndex(h.alertStore.Active())
+	activeAlerts, err := h.alertStore.Active()
+	if err != nil {
+		h.logger.Error("load active alerts failed", "error", err)
+		writeError(w, nethttp.StatusInternalServerError, "failed to load active alerts")
+		return
+	}
+
+	qualityIndex := analytics.CalculateQualityIndex(activeAlerts)
+
+	qualityIndex, err = h.qualityStore.Save(qualityIndex)
+	if err != nil {
+		h.logger.Error("save quality index failed", "error", err)
+		writeError(w, nethttp.StatusInternalServerError, "failed to save quality index")
+		return
+	}
 
 	h.logger.Info(
 		"telemetry received",
@@ -173,7 +200,7 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		QualityState:  qualityIndex.State,
 	}
 
-	writeJSON(w, http.StatusCreated, response)
+	writeJSON(w, nethttp.StatusCreated, response)
 }
 
 func alertLevelFromParameterState(state domain.ParameterState) (domain.AlertLevel, bool) {

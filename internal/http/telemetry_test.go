@@ -83,7 +83,7 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, telemetryStore, alertStore := newTestTelemetryHandler()
+			handler, telemetryStore, alertStore, qualityStore := newTestTelemetryHandler()
 
 			req := httptest.NewRequest(
 				nethttp.MethodPost,
@@ -151,12 +151,20 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 				}
 			}
 
-			savedReadings := telemetryStore.All()
+			savedReadings, err := telemetryStore.All()
+			if err != nil {
+				t.Fatalf("load telemetry readings: %v", err)
+			}
+
 			if len(savedReadings) != tt.expectedSavedCount {
 				t.Fatalf("expected %d saved readings, got %d", tt.expectedSavedCount, len(savedReadings))
 			}
 
-			alerts := alertStore.All()
+			alerts, err := alertStore.All()
+			if err != nil {
+				t.Fatalf("load alerts: %v", err)
+			}
+
 			if len(alerts) != tt.expectedAlertCount {
 				t.Fatalf("expected %d stored alerts, got %d", tt.expectedAlertCount, len(alerts))
 			}
@@ -175,6 +183,23 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 				if alert.ParameterType != domain.ParameterPressure {
 					t.Fatalf("expected stored alert parameterType %q, got %q", domain.ParameterPressure, alert.ParameterType)
 				}
+			}
+
+			latestQualityIndex, found, err := qualityStore.Latest()
+			if err != nil {
+				t.Fatalf("load latest quality index: %v", err)
+			}
+
+			if !found {
+				t.Fatalf("expected quality index to be saved")
+			}
+
+			if latestQualityIndex.Value != tt.expectedQualityIndex {
+				t.Fatalf("expected saved quality index %.2f, got %.2f", tt.expectedQualityIndex, latestQualityIndex.Value)
+			}
+
+			if latestQualityIndex.State != tt.expectedQualityState {
+				t.Fatalf("expected saved quality state %q, got %q", tt.expectedQualityState, latestQualityIndex.State)
 			}
 		})
 	}
@@ -282,7 +307,7 @@ func TestTelemetryHandlerCreateInvalidRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, telemetryStore, alertStore := newTestTelemetryHandler()
+			handler, telemetryStore, alertStore, qualityStore := newTestTelemetryHandler()
 
 			req := httptest.NewRequest(
 				tt.method,
@@ -308,22 +333,47 @@ func TestTelemetryHandlerCreateInvalidRequests(t *testing.T) {
 				t.Fatalf("expected error %q, got %q", tt.expectedError, response.Error)
 			}
 
-			if len(telemetryStore.All()) != 0 {
+			readings, err := telemetryStore.All()
+			if err != nil {
+				t.Fatalf("load telemetry readings: %v", err)
+			}
+
+			if len(readings) != 0 {
 				t.Fatalf("expected no saved readings for invalid request")
 			}
 
-			if len(alertStore.All()) != 0 {
+			alerts, err := alertStore.All()
+			if err != nil {
+				t.Fatalf("load alerts: %v", err)
+			}
+
+			if len(alerts) != 0 {
 				t.Fatalf("expected no stored alerts for invalid request")
+			}
+
+			_, found, err := qualityStore.Latest()
+			if err != nil {
+				t.Fatalf("load latest quality index: %v", err)
+			}
+
+			if found {
+				t.Fatalf("expected no saved quality index for invalid request")
 			}
 		})
 	}
 }
 
-func newTestTelemetryHandler() (*TelemetryHandler, *storage.MemoryTelemetryStore, *storage.MemoryAlertStore) {
+func newTestTelemetryHandler() (
+	*TelemetryHandler,
+	*storage.MemoryTelemetryStore,
+	*storage.MemoryAlertStore,
+	*storage.MemoryQualityStore,
+) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	telemetryStore := storage.NewMemoryTelemetryStore()
 	alertStore := storage.NewMemoryAlertStore()
+	qualityStore := storage.NewMemoryQualityStore()
 
 	setpoints := map[domain.ParameterType]domain.Setpoint{
 		domain.ParameterPressure: {
@@ -344,5 +394,7 @@ func newTestTelemetryHandler() (*TelemetryHandler, *storage.MemoryTelemetryStore
 		},
 	}
 
-	return NewTelemetryHandler(logger, telemetryStore, alertStore, setpoints), telemetryStore, alertStore
+	handler := NewTelemetryHandler(logger, telemetryStore, alertStore, qualityStore, setpoints)
+
+	return handler, telemetryStore, alertStore, qualityStore
 }

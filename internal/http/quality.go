@@ -4,45 +4,46 @@ import (
 	"extrusion-quality-system/internal/analytics"
 	"extrusion-quality-system/internal/storage"
 	"log/slog"
-	"net/http"
+	nethttp "net/http"
 )
 
 // QualityHandler handles quality index API requests.
 type QualityHandler struct {
-	logger     *slog.Logger
-	alertStore *storage.MemoryAlertStore
+	logger       *slog.Logger
+	qualityStore storage.QualityStore
 }
 
 // NewQualityHandler creates a quality index HTTP handler.
-func NewQualityHandler(logger *slog.Logger, alertStore *storage.MemoryAlertStore) *QualityHandler {
+func NewQualityHandler(logger *slog.Logger, qualityStore storage.QualityStore) *QualityHandler {
 	return &QualityHandler{
-		logger:     logger,
-		alertStore: alertStore,
+		logger:       logger,
+		qualityStore: qualityStore,
 	}
 }
 
 // Latest returns the latest calculated quality index.
-func (h *QualityHandler) Latest(w http.ResponseWriter, r *http.Request) {
+func (h *QualityHandler) Latest(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if r.URL.Path != "/api/quality/latest" {
-		http.NotFound(w, r)
+		nethttp.NotFound(w, r)
 		return
 	}
 
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if r.Method != nethttp.MethodGet {
+		w.Header().Set("Allow", nethttp.MethodGet)
+		writeError(w, nethttp.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	qualityIndex := analytics.CalculateQualityIndex(h.alertStore.Active())
+	qualityIndex, found, err := h.qualityStore.Latest()
+	if err != nil {
+		h.logger.Error("load latest quality index failed", "error", err)
+		writeError(w, nethttp.StatusInternalServerError, "failed to load latest quality index")
+		return
+	}
 
-	h.logger.Info(
-		"quality index calculated",
-		"value", qualityIndex.Value,
-		"state", qualityIndex.State,
-		"parameterPenalty", qualityIndex.ParameterPenalty,
-		"anomalyPenalty", qualityIndex.AnomalyPenalty,
-	)
+	if !found {
+		qualityIndex = analytics.CalculateQualityIndex(nil)
+	}
 
-	writeJSON(w, http.StatusOK, qualityIndex)
+	writeJSON(w, nethttp.StatusOK, qualityIndex)
 }

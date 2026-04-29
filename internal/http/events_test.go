@@ -6,7 +6,7 @@ import (
 	"extrusion-quality-system/internal/storage"
 	"io"
 	"log/slog"
-	"net/http"
+	nethttp "net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -17,7 +17,7 @@ func TestEventHandlerList(t *testing.T) {
 	alertStore := storage.NewMemoryAlertStore()
 	handler := NewEventHandler(logger, alertStore)
 
-	alertStore.Create(domain.AlertEvent{
+	_, err := alertStore.Create(domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelWarning,
 		Status:        domain.AlertStatusActive,
@@ -27,14 +27,17 @@ func TestEventHandlerList(t *testing.T) {
 		Message:       "pressure warning",
 		CreatedAt:     time.Now().UTC(),
 	})
+	if err != nil {
+		t.Fatalf("create alert: %v", err)
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/events", nil)
+	req := httptest.NewRequest(nethttp.MethodGet, "/api/events", nil)
 	rec := httptest.NewRecorder()
 
 	handler.List(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d, body: %s", http.StatusOK, rec.Code, rec.Body.String())
+	if rec.Code != nethttp.StatusOK {
+		t.Fatalf("expected status %d, got %d, body: %s", nethttp.StatusOK, rec.Code, rec.Body.String())
 	}
 
 	var events []domain.AlertEvent
@@ -60,17 +63,17 @@ func TestEventHandlerListMethodNotAllowed(t *testing.T) {
 	alertStore := storage.NewMemoryAlertStore()
 	handler := NewEventHandler(logger, alertStore)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/events", nil)
+	req := httptest.NewRequest(nethttp.MethodPost, "/api/events", nil)
 	rec := httptest.NewRecorder()
 
 	handler.List(rec, req)
 
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected status %d, got %d", http.StatusMethodNotAllowed, rec.Code)
+	if rec.Code != nethttp.StatusMethodNotAllowed {
+		t.Fatalf("expected status %d, got %d", nethttp.StatusMethodNotAllowed, rec.Code)
 	}
 
-	if rec.Header().Get("Allow") != http.MethodGet {
-		t.Fatalf("expected Allow header %q, got %q", http.MethodGet, rec.Header().Get("Allow"))
+	if rec.Header().Get("Allow") != nethttp.MethodGet {
+		t.Fatalf("expected Allow header %q, got %q", nethttp.MethodGet, rec.Header().Get("Allow"))
 	}
 }
 
@@ -79,7 +82,7 @@ func TestEventHandlerAcknowledge(t *testing.T) {
 	alertStore := storage.NewMemoryAlertStore()
 	handler := NewEventHandler(logger, alertStore)
 
-	alert := alertStore.Create(domain.AlertEvent{
+	alert, err := alertStore.Create(domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelWarning,
 		Status:        domain.AlertStatusActive,
@@ -89,14 +92,17 @@ func TestEventHandlerAcknowledge(t *testing.T) {
 		Message:       "pressure warning",
 		CreatedAt:     time.Now().UTC(),
 	})
+	if err != nil {
+		t.Fatalf("create alert: %v", err)
+	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/events/1/ack", nil)
+	req := httptest.NewRequest(nethttp.MethodPost, "/api/events/1/ack", nil)
 	rec := httptest.NewRecorder()
 
 	handler.Action(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d, body: %s", http.StatusOK, rec.Code, rec.Body.String())
+	if rec.Code != nethttp.StatusOK {
+		t.Fatalf("expected status %d, got %d, body: %s", nethttp.StatusOK, rec.Code, rec.Body.String())
 	}
 
 	var response domain.AlertEvent
@@ -122,7 +128,7 @@ func TestEventHandlerResolve(t *testing.T) {
 	alertStore := storage.NewMemoryAlertStore()
 	handler := NewEventHandler(logger, alertStore)
 
-	alert := alertStore.Create(domain.AlertEvent{
+	alert, err := alertStore.Create(domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelCritical,
 		Status:        domain.AlertStatusActive,
@@ -132,14 +138,17 @@ func TestEventHandlerResolve(t *testing.T) {
 		Message:       "pressure critical",
 		CreatedAt:     time.Now().UTC(),
 	})
+	if err != nil {
+		t.Fatalf("create alert: %v", err)
+	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/events/1/resolve", nil)
+	req := httptest.NewRequest(nethttp.MethodPost, "/api/events/1/resolve", nil)
 	rec := httptest.NewRecorder()
 
 	handler.Action(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d, body: %s", http.StatusOK, rec.Code, rec.Body.String())
+	if rec.Code != nethttp.StatusOK {
+		t.Fatalf("expected status %d, got %d, body: %s", nethttp.StatusOK, rec.Code, rec.Body.String())
 	}
 
 	var response domain.AlertEvent
@@ -189,13 +198,13 @@ func TestEventHandlerActionNotFound(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			req := httptest.NewRequest(nethttp.MethodPost, tt.path, nil)
 			rec := httptest.NewRecorder()
 
 			handler.Action(rec, req)
 
-			if rec.Code != http.StatusNotFound {
-				t.Fatalf("expected status %d, got %d, body: %s", http.StatusNotFound, rec.Code, rec.Body.String())
+			if rec.Code != nethttp.StatusNotFound {
+				t.Fatalf("expected status %d, got %d, body: %s", nethttp.StatusNotFound, rec.Code, rec.Body.String())
 			}
 		})
 	}
@@ -206,16 +215,16 @@ func TestEventHandlerActionMethodNotAllowed(t *testing.T) {
 	alertStore := storage.NewMemoryAlertStore()
 	handler := NewEventHandler(logger, alertStore)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/events/1/ack", nil)
+	req := httptest.NewRequest(nethttp.MethodGet, "/api/events/1/ack", nil)
 	rec := httptest.NewRecorder()
 
 	handler.Action(rec, req)
 
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected status %d, got %d", http.StatusMethodNotAllowed, rec.Code)
+	if rec.Code != nethttp.StatusMethodNotAllowed {
+		t.Fatalf("expected status %d, got %d", nethttp.StatusMethodNotAllowed, rec.Code)
 	}
 
-	if rec.Header().Get("Allow") != http.MethodPost {
-		t.Fatalf("expected Allow header %q, got %q", http.MethodPost, rec.Header().Get("Allow"))
+	if rec.Header().Get("Allow") != nethttp.MethodPost {
+		t.Fatalf("expected Allow header %q, got %q", nethttp.MethodPost, rec.Header().Get("Allow"))
 	}
 }

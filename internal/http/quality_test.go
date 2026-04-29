@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"extrusion-quality-system/internal/analytics"
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/storage"
 	"io"
@@ -14,81 +15,59 @@ import (
 func TestQualityHandlerLatest(t *testing.T) {
 	tests := []struct {
 		name                     string
-		alerts                   []domain.AlertEvent
+		qualityIndex             *domain.QualityIndex
 		expectedValue            float64
 		expectedState            domain.QualityState
 		expectedParameterPenalty float64
 	}{
 		{
-			name:                     "without alerts returns stable quality index",
-			alerts:                   nil,
+			name:                     "without stored quality index returns default stable index",
+			qualityIndex:             nil,
 			expectedValue:            100,
 			expectedState:            domain.QualityStateStable,
 			expectedParameterPenalty: 0,
 		},
 		{
-			name: "with warning alert returns decreased quality index",
-			alerts: []domain.AlertEvent{
-				{
-					ParameterType: domain.ParameterPressure,
-					Level:         domain.AlertLevelWarning,
-					Status:        domain.AlertStatusActive,
-					Value:         82.5,
-					Unit:          domain.UnitBar,
-					SourceID:      domain.SourceID("simulator"),
-					Message:       "pressure warning",
-				},
+			name: "with stored warning quality index returns latest value",
+			qualityIndex: &domain.QualityIndex{
+				Value:            85,
+				State:            domain.QualityStateStable,
+				ParameterPenalty: 15,
+				AnomalyPenalty:   0,
+				CalculatedAt:     analytics.CalculateQualityIndex(nil).CalculatedAt,
 			},
 			expectedValue:            85,
 			expectedState:            domain.QualityStateStable,
 			expectedParameterPenalty: 15,
 		},
 		{
-			name: "with critical alert returns stronger decreased quality index",
-			alerts: []domain.AlertEvent{
-				{
-					ParameterType: domain.ParameterPressure,
-					Level:         domain.AlertLevelCritical,
-					Status:        domain.AlertStatusActive,
-					Value:         95,
-					Unit:          domain.UnitBar,
-					SourceID:      domain.SourceID("simulator"),
-					Message:       "pressure critical",
-				},
+			name: "with stored critical quality index returns latest value",
+			qualityIndex: &domain.QualityIndex{
+				Value:            55,
+				State:            domain.QualityStateUnstable,
+				ParameterPenalty: 45,
+				AnomalyPenalty:   0,
+				CalculatedAt:     analytics.CalculateQualityIndex(nil).CalculatedAt,
 			},
-			expectedValue:            70,
-			expectedState:            domain.QualityStateWarning,
-			expectedParameterPenalty: 30,
-		},
-		{
-			name: "resolved alert does not affect quality index",
-			alerts: []domain.AlertEvent{
-				{
-					ParameterType: domain.ParameterPressure,
-					Level:         domain.AlertLevelCritical,
-					Status:        domain.AlertStatusResolved,
-					Value:         95,
-					Unit:          domain.UnitBar,
-					SourceID:      domain.SourceID("simulator"),
-					Message:       "pressure critical",
-				},
-			},
-			expectedValue:            100,
-			expectedState:            domain.QualityStateStable,
-			expectedParameterPenalty: 0,
+			expectedValue:            55,
+			expectedState:            domain.QualityStateUnstable,
+			expectedParameterPenalty: 45,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			alertStore := storage.NewMemoryAlertStore()
+			qualityStore := storage.NewMemoryQualityStore()
 
-			for _, alert := range tt.alerts {
-				alertStore.Create(alert)
+			if tt.qualityIndex != nil {
+				_, err := qualityStore.Save(*tt.qualityIndex)
+				if err != nil {
+					t.Fatalf("save quality index: %v", err)
+				}
 			}
 
-			handler := NewQualityHandler(logger, alertStore)
+			handler := NewQualityHandler(logger, qualityStore)
 
 			req := httptest.NewRequest(nethttp.MethodGet, "/api/quality/latest", nil)
 			rec := httptest.NewRecorder()
@@ -158,8 +137,8 @@ func TestQualityHandlerLatestInvalidRequests(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			alertStore := storage.NewMemoryAlertStore()
-			handler := NewQualityHandler(logger, alertStore)
+			qualityStore := storage.NewMemoryQualityStore()
+			handler := NewQualityHandler(logger, qualityStore)
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()

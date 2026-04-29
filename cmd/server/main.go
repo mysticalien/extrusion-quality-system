@@ -1,37 +1,39 @@
 package main
 
 import (
+	"context"
+	"extrusion-quality-system/internal/config"
 	"extrusion-quality-system/internal/domain"
-	httpapi "extrusion-quality-system/internal/http"
+	httphandler "extrusion-quality-system/internal/http"
 	"extrusion-quality-system/internal/storage"
 	"fmt"
 	"log/slog"
-	"net/http"
+	nethttp "net/http"
 	"os"
 	"time"
 )
 
-func homeHandler(w http.ResponseWriter, r *http.Request) {
+func homeHandler(w nethttp.ResponseWriter, r *nethttp.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+		nethttp.NotFound(w, r)
 		return
 	}
 
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		w.WriteHeader(http.StatusMethodNotAllowed)
+	if r.Method != nethttp.MethodGet {
+		w.Header().Set("Allow", nethttp.MethodGet)
+		w.WriteHeader(nethttp.StatusMethodNotAllowed)
 		return
 	}
 
 	fmt.Fprint(w, "Homepage!")
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		w.WriteHeader(http.StatusMethodNotAllowed)
+func healthHandler(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if r.Method != nethttp.MethodGet {
+		w.Header().Set("Allow", nethttp.MethodGet)
+		w.WriteHeader(nethttp.StatusMethodNotAllowed)
 		return
 	}
 
@@ -42,15 +44,34 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	telemetryStore := storage.NewMemoryTelemetryStore()
-	alertStore := storage.NewMemoryAlertStore()
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Error("load config failed", "error", err)
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	pool, err := storage.NewPostgresPool(ctx, cfg.Database.URL)
+	if err != nil {
+		logger.Error("connect to postgres failed", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	logger.Info("connected to postgres")
+
+	telemetryStore := storage.NewPostgresTelemetryStore(pool)
+	alertStore := storage.NewPostgresAlertStore(pool)
+	qualityStore := storage.NewPostgresQualityStore(pool)
 	setpoints := defaultSetpoints()
 
-	telemetryHandler := httpapi.NewTelemetryHandler(logger, telemetryStore, alertStore, setpoints)
-	eventHandler := httpapi.NewEventHandler(logger, alertStore)
-	qualityHandler := httpapi.NewQualityHandler(logger, alertStore)
+	telemetryHandler := httphandler.NewTelemetryHandler(logger, telemetryStore, alertStore, qualityStore, setpoints)
+	eventHandler := httphandler.NewEventHandler(logger, alertStore)
+	qualityHandler := httphandler.NewQualityHandler(logger, qualityStore)
 
-	mux := http.NewServeMux()
+	mux := nethttp.NewServeMux()
 	mux.HandleFunc("/", homeHandler)
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/api/telemetry", telemetryHandler.Create)
@@ -58,12 +79,12 @@ func main() {
 	mux.HandleFunc("/api/events/", eventHandler.Action)
 	mux.HandleFunc("/api/quality/latest", qualityHandler.Latest)
 
-	server := &http.Server{
-		Addr:              ":8080",
+	server := &nethttp.Server{
+		Addr:              cfg.Server.Addr,
 		Handler:           mux,
-		ReadTimeout:       5 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout:       cfg.Server.ReadTimeout,
+		WriteTimeout:      cfg.Server.WriteTimeout,
+		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
 	}
 
 	logger.Info("starting server", "addr", server.Addr)

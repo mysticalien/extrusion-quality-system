@@ -4,7 +4,7 @@ import (
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/storage"
 	"log/slog"
-	"net/http"
+	nethttp "net/http"
 	"strconv"
 	"strings"
 )
@@ -12,11 +12,11 @@ import (
 // EventHandler handles alert event API requests.
 type EventHandler struct {
 	logger     *slog.Logger
-	alertStore *storage.MemoryAlertStore
+	alertStore storage.AlertStore
 }
 
 // NewEventHandler creates an alert event HTTP handler.
-func NewEventHandler(logger *slog.Logger, alertStore *storage.MemoryAlertStore) *EventHandler {
+func NewEventHandler(logger *slog.Logger, alertStore storage.AlertStore) *EventHandler {
 	return &EventHandler{
 		logger:     logger,
 		alertStore: alertStore,
@@ -24,33 +24,39 @@ func NewEventHandler(logger *slog.Logger, alertStore *storage.MemoryAlertStore) 
 }
 
 // List returns all alert events.
-func (h *EventHandler) List(w http.ResponseWriter, r *http.Request) {
+func (h *EventHandler) List(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if r.URL.Path != "/api/events" {
-		http.NotFound(w, r)
+		nethttp.NotFound(w, r)
 		return
 	}
 
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if r.Method != nethttp.MethodGet {
+		w.Header().Set("Allow", nethttp.MethodGet)
+		writeError(w, nethttp.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	events := h.alertStore.All()
-	writeJSON(w, http.StatusOK, events)
+	events, err := h.alertStore.All()
+	if err != nil {
+		h.logger.Error("load alert events failed", "error", err)
+		writeError(w, nethttp.StatusInternalServerError, "failed to load alert events")
+		return
+	}
+
+	writeJSON(w, nethttp.StatusOK, events)
 }
 
 // Action handles alert event actions, such as acknowledge and resolve.
-func (h *EventHandler) Action(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+func (h *EventHandler) Action(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if r.Method != nethttp.MethodPost {
+		w.Header().Set("Allow", nethttp.MethodPost)
+		writeError(w, nethttp.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	id, action, ok := parseEventActionPath(r.URL.Path)
 	if !ok {
-		http.NotFound(w, r)
+		nethttp.NotFound(w, r)
 		return
 	}
 
@@ -60,32 +66,42 @@ func (h *EventHandler) Action(w http.ResponseWriter, r *http.Request) {
 	case "resolve":
 		h.resolve(w, id)
 	default:
-		http.NotFound(w, r)
+		nethttp.NotFound(w, r)
 	}
 }
 
-func (h *EventHandler) acknowledge(w http.ResponseWriter, id domain.AlertID) {
-	// UserID is not available yet because authentication is not implemented.
-	// It will be passed here after role-based access control is added.
-	event, ok := h.alertStore.Acknowledge(id, nil)
-	if !ok {
-		writeError(w, http.StatusNotFound, "alert not found")
+func (h *EventHandler) acknowledge(w nethttp.ResponseWriter, id domain.AlertID) {
+	event, found, err := h.alertStore.Acknowledge(id, nil)
+	if err != nil {
+		h.logger.Error("acknowledge alert failed", "alertId", id, "error", err)
+		writeError(w, nethttp.StatusInternalServerError, "failed to acknowledge alert")
+		return
+	}
+
+	if !found {
+		writeError(w, nethttp.StatusNotFound, "alert not found")
 		return
 	}
 
 	h.logger.Info("alert acknowledged", "alertId", id)
-	writeJSON(w, http.StatusOK, event)
+	writeJSON(w, nethttp.StatusOK, event)
 }
 
-func (h *EventHandler) resolve(w http.ResponseWriter, id domain.AlertID) {
-	event, ok := h.alertStore.Resolve(id)
-	if !ok {
-		writeError(w, http.StatusNotFound, "alert not found")
+func (h *EventHandler) resolve(w nethttp.ResponseWriter, id domain.AlertID) {
+	event, found, err := h.alertStore.Resolve(id)
+	if err != nil {
+		h.logger.Error("resolve alert failed", "alertId", id, "error", err)
+		writeError(w, nethttp.StatusInternalServerError, "failed to resolve alert")
+		return
+	}
+
+	if !found {
+		writeError(w, nethttp.StatusNotFound, "alert not found")
 		return
 	}
 
 	h.logger.Info("alert resolved", "alertId", id)
-	writeJSON(w, http.StatusOK, event)
+	writeJSON(w, nethttp.StatusOK, event)
 }
 
 func parseEventActionPath(path string) (domain.AlertID, string, bool) {

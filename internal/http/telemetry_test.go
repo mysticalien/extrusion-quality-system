@@ -19,8 +19,10 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 		expectedStatus       int
 		expectedState        domain.ParameterState
 		expectedAlertCreated bool
+		expectedAlertLevel   domain.AlertLevel
 		expectedQualityIndex int
 		expectedSavedCount   int
+		expectedAlertCount   int
 	}{
 		{
 			name: "normal pressure reading",
@@ -34,8 +36,10 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 			expectedStatus:       http.StatusCreated,
 			expectedState:        domain.ParameterStateNormal,
 			expectedAlertCreated: false,
+			expectedAlertLevel:   "",
 			expectedQualityIndex: 100,
 			expectedSavedCount:   1,
+			expectedAlertCount:   0,
 		},
 		{
 			name: "warning pressure reading",
@@ -49,8 +53,10 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 			expectedStatus:       http.StatusCreated,
 			expectedState:        domain.ParameterStateWarning,
 			expectedAlertCreated: true,
+			expectedAlertLevel:   domain.AlertLevelWarning,
 			expectedQualityIndex: 80,
 			expectedSavedCount:   1,
+			expectedAlertCount:   1,
 		},
 		{
 			name: "critical pressure reading",
@@ -64,14 +70,16 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 			expectedStatus:       http.StatusCreated,
 			expectedState:        domain.ParameterStateCritical,
 			expectedAlertCreated: true,
+			expectedAlertLevel:   domain.AlertLevelCritical,
 			expectedQualityIndex: 50,
 			expectedSavedCount:   1,
+			expectedAlertCount:   1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, store := newTestTelemetryHandler()
+			handler, telemetryStore, alertStore := newTestTelemetryHandler()
 
 			req := httptest.NewRequest(
 				http.MethodPost,
@@ -113,9 +121,52 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 				t.Fatalf("expected qualityIndex %d, got %d", tt.expectedQualityIndex, response.QualityIndex)
 			}
 
-			savedReadings := store.All()
+			if tt.expectedAlertCreated {
+				if response.AlertID == nil {
+					t.Fatalf("expected alertId to be set")
+				}
+
+				if response.AlertLevel == nil {
+					t.Fatalf("expected alertLevel to be set")
+				}
+
+				if *response.AlertLevel != tt.expectedAlertLevel {
+					t.Fatalf("expected alertLevel %q, got %q", tt.expectedAlertLevel, *response.AlertLevel)
+				}
+			} else {
+				if response.AlertID != nil {
+					t.Fatalf("expected alertId to be nil, got %d", *response.AlertID)
+				}
+
+				if response.AlertLevel != nil {
+					t.Fatalf("expected alertLevel to be nil, got %q", *response.AlertLevel)
+				}
+			}
+
+			savedReadings := telemetryStore.All()
 			if len(savedReadings) != tt.expectedSavedCount {
 				t.Fatalf("expected %d saved readings, got %d", tt.expectedSavedCount, len(savedReadings))
+			}
+
+			alerts := alertStore.All()
+			if len(alerts) != tt.expectedAlertCount {
+				t.Fatalf("expected %d stored alerts, got %d", tt.expectedAlertCount, len(alerts))
+			}
+
+			if tt.expectedAlertCreated {
+				alert := alerts[0]
+
+				if alert.Level != tt.expectedAlertLevel {
+					t.Fatalf("expected stored alert level %q, got %q", tt.expectedAlertLevel, alert.Level)
+				}
+
+				if alert.Status != domain.AlertStatusActive {
+					t.Fatalf("expected stored alert status %q, got %q", domain.AlertStatusActive, alert.Status)
+				}
+
+				if alert.ParameterType != domain.ParameterPressure {
+					t.Fatalf("expected stored alert parameterType %q, got %q", domain.ParameterPressure, alert.ParameterType)
+				}
 			}
 		})
 	}
@@ -223,7 +274,7 @@ func TestTelemetryHandlerCreateInvalidRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, store := newTestTelemetryHandler()
+			handler, telemetryStore, alertStore := newTestTelemetryHandler()
 
 			req := httptest.NewRequest(
 				tt.method,
@@ -249,16 +300,22 @@ func TestTelemetryHandlerCreateInvalidRequests(t *testing.T) {
 				t.Fatalf("expected error %q, got %q", tt.expectedError, response.Error)
 			}
 
-			if len(store.All()) != 0 {
+			if len(telemetryStore.All()) != 0 {
 				t.Fatalf("expected no saved readings for invalid request")
+			}
+
+			if len(alertStore.All()) != 0 {
+				t.Fatalf("expected no stored alerts for invalid request")
 			}
 		})
 	}
 }
 
-func newTestTelemetryHandler() (*TelemetryHandler, *storage.MemoryTelemetryStore) {
+func newTestTelemetryHandler() (*TelemetryHandler, *storage.MemoryTelemetryStore, *storage.MemoryAlertStore) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	store := storage.NewMemoryTelemetryStore()
+
+	telemetryStore := storage.NewMemoryTelemetryStore()
+	alertStore := storage.NewMemoryAlertStore()
 
 	setpoints := map[domain.ParameterType]domain.Setpoint{
 		domain.ParameterPressure: {
@@ -279,5 +336,203 @@ func newTestTelemetryHandler() (*TelemetryHandler, *storage.MemoryTelemetryStore
 		},
 	}
 
-	return NewTelemetryHandler(logger, store, setpoints), store
+	return NewTelemetryHandler(logger, telemetryStore, alertStore, setpoints), telemetryStore, alertStore
+}
+
+func TestTelemetryHandlerCreateDoesNotCreateAlertForNormalState(t *testing.T) {
+	handler, _, alertStore := newTestTelemetryHandlerWithAlerts()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/telemetry",
+		bytes.NewBufferString(`{
+			"parameterType": "pressure",
+			"value": 65,
+			"unit": "bar",
+			"sourceId": "simulator",
+			"measuredAt": "2026-04-27T18:00:00Z"
+		}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+
+	handler.Create(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d, body: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var response TelemetryCreateResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if response.State != domain.ParameterStateNormal {
+		t.Fatalf("expected state %q, got %q", domain.ParameterStateNormal, response.State)
+	}
+
+	if response.AlertCreated {
+		t.Fatalf("expected alertCreated false")
+	}
+
+	if response.AlertID != nil {
+		t.Fatalf("expected alertId to be nil")
+	}
+
+	if response.AlertLevel != nil {
+		t.Fatalf("expected alertLevel to be nil")
+	}
+
+	if len(alertStore.All()) != 0 {
+		t.Fatalf("expected no stored alerts, got %d", len(alertStore.All()))
+	}
+}
+
+func TestTelemetryHandlerCreateCreatesWarningAlert(t *testing.T) {
+	handler, _, alertStore := newTestTelemetryHandlerWithAlerts()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/telemetry",
+		bytes.NewBufferString(`{
+			"parameterType": "pressure",
+			"value": 82.5,
+			"unit": "bar",
+			"sourceId": "simulator",
+			"measuredAt": "2026-04-27T18:00:00Z"
+		}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+
+	handler.Create(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d, body: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var response TelemetryCreateResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if response.State != domain.ParameterStateWarning {
+		t.Fatalf("expected state %q, got %q", domain.ParameterStateWarning, response.State)
+	}
+
+	if !response.AlertCreated {
+		t.Fatalf("expected alertCreated true")
+	}
+
+	if response.AlertID == nil {
+		t.Fatalf("expected alertId to be set")
+	}
+
+	if response.AlertLevel == nil {
+		t.Fatalf("expected alertLevel to be set")
+	}
+
+	if *response.AlertLevel != domain.AlertLevelWarning {
+		t.Fatalf("expected alertLevel %q, got %q", domain.AlertLevelWarning, *response.AlertLevel)
+	}
+
+	alerts := alertStore.All()
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 stored alert, got %d", len(alerts))
+	}
+
+	if alerts[0].Level != domain.AlertLevelWarning {
+		t.Fatalf("expected stored alert level %q, got %q", domain.AlertLevelWarning, alerts[0].Level)
+	}
+
+	if alerts[0].Status != domain.AlertStatusActive {
+		t.Fatalf("expected stored alert status %q, got %q", domain.AlertStatusActive, alerts[0].Status)
+	}
+}
+
+func TestTelemetryHandlerCreateCreatesCriticalAlert(t *testing.T) {
+	handler, _, alertStore := newTestTelemetryHandlerWithAlerts()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/telemetry",
+		bytes.NewBufferString(`{
+			"parameterType": "pressure",
+			"value": 95,
+			"unit": "bar",
+			"sourceId": "simulator",
+			"measuredAt": "2026-04-27T18:00:00Z"
+		}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+
+	handler.Create(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d, body: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var response TelemetryCreateResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if response.State != domain.ParameterStateCritical {
+		t.Fatalf("expected state %q, got %q", domain.ParameterStateCritical, response.State)
+	}
+
+	if !response.AlertCreated {
+		t.Fatalf("expected alertCreated true")
+	}
+
+	if response.AlertID == nil {
+		t.Fatalf("expected alertId to be set")
+	}
+
+	if response.AlertLevel == nil {
+		t.Fatalf("expected alertLevel to be set")
+	}
+
+	if *response.AlertLevel != domain.AlertLevelCritical {
+		t.Fatalf("expected alertLevel %q, got %q", domain.AlertLevelCritical, *response.AlertLevel)
+	}
+
+	alerts := alertStore.All()
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 stored alert, got %d", len(alerts))
+	}
+
+	if alerts[0].Level != domain.AlertLevelCritical {
+		t.Fatalf("expected stored alert level %q, got %q", domain.AlertLevelCritical, alerts[0].Level)
+	}
+
+	if alerts[0].Status != domain.AlertStatusActive {
+		t.Fatalf("expected stored alert status %q, got %q", domain.AlertStatusActive, alerts[0].Status)
+	}
+}
+
+func newTestTelemetryHandlerWithAlerts() (*TelemetryHandler, *storage.MemoryTelemetryStore, *storage.MemoryAlertStore) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	telemetryStore := storage.NewMemoryTelemetryStore()
+	alertStore := storage.NewMemoryAlertStore()
+
+	setpoints := map[domain.ParameterType]domain.Setpoint{
+		domain.ParameterPressure: {
+			ParameterType: domain.ParameterPressure,
+			Unit:          domain.UnitBar,
+			WarningMin:    30,
+			NormalMin:     40,
+			NormalMax:     75,
+			WarningMax:    90,
+		},
+	}
+
+	handler := NewTelemetryHandler(logger, telemetryStore, alertStore, setpoints)
+
+	return handler, telemetryStore, alertStore
 }

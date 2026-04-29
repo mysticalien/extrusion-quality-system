@@ -2,7 +2,7 @@ package main
 
 import (
 	"extrusion-quality-system/internal/domain"
-	httpAPI "extrusion-quality-system/internal/http"
+	httpapi "extrusion-quality-system/internal/http"
 	"extrusion-quality-system/internal/storage"
 	"fmt"
 	"log/slog"
@@ -43,14 +43,18 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	telemetryStore := storage.NewMemoryTelemetryStore()
+	alertStore := storage.NewMemoryAlertStore()
 	setpoints := defaultSetpoints()
 
-	telemetryHandler := httpAPI.NewTelemetryHandler(logger, telemetryStore, setpoints)
+	telemetryHandler := httpapi.NewTelemetryHandler(logger, telemetryStore, alertStore, setpoints)
+	eventHandler := httpapi.NewEventHandler(logger, alertStore)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", homeHandler)
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/api/telemetry", telemetryHandler.Create)
+	mux.HandleFunc("/api/events", eventHandler.List)
+	mux.HandleFunc("/api/events/", eventHandler.Action)
 
 	server := &http.Server{
 		Addr:              ":8080",

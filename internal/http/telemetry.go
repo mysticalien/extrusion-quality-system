@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/storage"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -28,31 +29,36 @@ type TelemetryCreateResponse struct {
 	MeasuredAt    time.Time             `json:"measuredAt"`
 	State         domain.ParameterState `json:"state"`
 	AlertCreated  bool                  `json:"alertCreated"`
+	AlertID       *domain.AlertID       `json:"alertId,omitempty"`
+	AlertLevel    *domain.AlertLevel    `json:"alertLevel,omitempty"`
 	QualityIndex  int                   `json:"qualityIndex"`
 }
 
 // TelemetryHandler handles telemetry API requests.
 type TelemetryHandler struct {
-	logger    *slog.Logger
-	store     *storage.MemoryTelemetryStore
-	setpoints map[domain.ParameterType]domain.Setpoint
+	logger     *slog.Logger
+	store      *storage.MemoryTelemetryStore
+	alertStore *storage.MemoryAlertStore
+	setpoints  map[domain.ParameterType]domain.Setpoint
 }
 
 // NewTelemetryHandler creates a telemetry HTTP handler.
 func NewTelemetryHandler(
 	logger *slog.Logger,
 	store *storage.MemoryTelemetryStore,
+	alertStore *storage.MemoryAlertStore,
 	setpoints map[domain.ParameterType]domain.Setpoint,
 ) *TelemetryHandler {
 	return &TelemetryHandler{
-		logger:    logger,
-		store:     store,
-		setpoints: setpoints,
+		logger:     logger,
+		store:      store,
+		alertStore: alertStore,
+		setpoints:  setpoints,
 	}
 }
 
 // Create receives a telemetry reading, stores it in memory, evaluates setpoints,
-// and returns the processing result.
+// creates an alert event if needed, and returns the processing result.
 func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
@@ -110,8 +116,32 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	reading = h.store.Save(reading)
 
 	state := setpoint.Evaluate(reading.Value)
-	alertCreated := state != domain.ParameterStateNormal
 	qualityIndex := approximateQualityIndex(state)
+
+	var alertID *domain.AlertID
+	var alertLevel *domain.AlertLevel
+
+	level, shouldCreateAlert := alertLevelFromParameterState(state)
+	if shouldCreateAlert {
+		alert := domain.AlertEvent{
+			ParameterType: reading.ParameterType,
+			Level:         level,
+			Status:        domain.AlertStatusActive,
+			Value:         reading.Value,
+			Unit:          reading.Unit,
+			SourceID:      reading.SourceID,
+			Message:       buildAlertMessage(reading, level),
+			CreatedAt:     time.Now().UTC(),
+		}
+
+		alert = h.alertStore.Create(alert)
+
+		id := alert.ID
+		alertID = &id
+
+		levelCopy := alert.Level
+		alertLevel = &levelCopy
+	}
 
 	h.logger.Info(
 		"telemetry received",
@@ -120,7 +150,7 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		"unit", reading.Unit,
 		"sourceId", reading.SourceID,
 		"state", state,
-		"alertCreated", alertCreated,
+		"alertCreated", shouldCreateAlert,
 		"qualityIndex", qualityIndex,
 	)
 
@@ -132,11 +162,34 @@ func (h *TelemetryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		SourceID:      reading.SourceID,
 		MeasuredAt:    reading.MeasuredAt,
 		State:         state,
-		AlertCreated:  alertCreated,
+		AlertCreated:  shouldCreateAlert,
+		AlertID:       alertID,
+		AlertLevel:    alertLevel,
 		QualityIndex:  qualityIndex,
 	}
 
 	writeJSON(w, http.StatusCreated, response)
+}
+
+func alertLevelFromParameterState(state domain.ParameterState) (domain.AlertLevel, bool) {
+	switch state {
+	case domain.ParameterStateWarning:
+		return domain.AlertLevelWarning, true
+	case domain.ParameterStateCritical:
+		return domain.AlertLevelCritical, true
+	default:
+		return "", false
+	}
+}
+
+func buildAlertMessage(reading domain.TelemetryReading, level domain.AlertLevel) string {
+	return fmt.Sprintf(
+		"parameter %s has %s value %.2f %s",
+		reading.ParameterType,
+		level,
+		reading.Value,
+		reading.Unit,
+	)
 }
 
 func approximateQualityIndex(state domain.ParameterState) int {

@@ -46,3 +46,20 @@ type AlertEvent struct {
 	// ResolvedAt is set when the parameter returns to an acceptable state.
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
 }
+
+// Acknowledge marks the alert as acknowledged by a user.
+func (a *AlertEvent) Acknowledge(userID *UserID, acknowledgedAt time.Time) {
+	a.Status = AlertStatusAcknowledged
+	a.AcknowledgedAt = &acknowledgedAt
+
+	if userID != nil {
+		id := *userID
+		a.AcknowledgedBy = &id
+	}
+}
+
+// Resolve marks the alert as resolved.
+func (a *AlertEvent) Resolve(resolvedAt time.Time) {
+	a.Status = AlertStatusResolved
+	a.ResolvedAt = &resolvedAt
+}

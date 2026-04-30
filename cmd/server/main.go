@@ -16,8 +16,6 @@ import (
 )
 
 func homeHandler(w nethttp.ResponseWriter, r *nethttp.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-
 	if r.URL.Path != "/" {
 		nethttp.NotFound(w, r)
 		return
@@ -29,7 +27,7 @@ func homeHandler(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	fmt.Fprint(w, "Homepage!")
+	nethttp.ServeFile(w, r, "web/index.html")
 }
 
 func healthHandler(w nethttp.ResponseWriter, r *nethttp.Request) {

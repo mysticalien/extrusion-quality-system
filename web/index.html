@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Extrusion Quality Dashboard</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 24px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #1f2933;
+        }
+
+        header {
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #667085;
+            font-size: 14px;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        .quality-card {
+            padding: 24px;
+            border-radius: 14px;
+            background: white;
+            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+        }
+
+        .quality-title {
+            font-size: 14px;
+            color: #667085;
+            margin-bottom: 8px;
+        }
+
+        .quality-value {
+            font-size: 42px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .quality-state {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 600;
+            background: #e5e7eb;
+        }
+
+        .section {
+            padding: 20px;
+            border-radius: 14px;
+            background: white;
+            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+        }
+
+        .section h2 {
+            margin: 0 0 16px;
+            font-size: 20px;
+        }
+
+        .parameters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 14px;
+        }
+
+        .parameter-card {
+            padding: 16px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            background: #fafafa;
+        }
+
+        .parameter-name {
+            font-size: 14px;
+            color: #667085;
+            margin-bottom: 8px;
+        }
+
+        .parameter-value {
+            font-size: 26px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .parameter-meta {
+            font-size: 12px;
+            color: #667085;
+            line-height: 1.4;
+        }
+
+        .events-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .event-card {
+            padding: 16px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            background: #fafafa;
+        }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .event-level {
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .event-status {
+            font-size: 13px;
+            color: #667085;
+        }
+
+        .event-message {
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .event-meta {
+            font-size: 12px;
+            color: #667085;
+            margin-bottom: 12px;
+        }
+
+        button {
+            border: none;
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            background: #2563eb;
+            color: white;
+            font-weight: 600;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            background: #9ca3af;
+        }
+
+        .empty {
+            color: #667085;
+            font-size: 14px;
+        }
+
+        .error {
+            padding: 12px;
+            border-radius: 10px;
+            background: #fee2e2;
+            color: #991b1b;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .stable {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .unstable {
+            background: #ffedd5;
+            color: #9a3412;
+        }
+
+        .critical {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+    </style>
+</head>
+
+<body>
+<header>
+    <h1>Extrusion Quality Dashboard</h1>
+    <div class="subtitle">Live monitoring of extrusion process telemetry, alerts and quality index</div>
+</header>
+
+<div id="error" class="error"></div>
+
+<main class="layout">
+    <section class="quality-card">
+        <div class="quality-title">Current quality index</div>
+        <div id="qualityValue" class="quality-value">Loading...</div>
+        <div id="qualityState" class="quality-state">unknown</div>
+    </section>
+
+    <section class="section">
+        <h2>Current parameters</h2>
+        <div id="parameters" class="parameters-grid"></div>
+    </section>
+
+    <section class="section">
+        <h2>Active events</h2>
+        <div id="events" class="events-list"></div>
+    </section>
+</main>
+
+<script>
+    const refreshIntervalMs = 2000;
+
+    const parameterNames = {
+        pressure: "Pressure",
+        moisture: "Moisture",
+        barrel_temperature_zone_1: "Barrel temperature zone 1",
+        barrel_temperature_zone_2: "Barrel temperature zone 2",
+        barrel_temperature_zone_3: "Barrel temperature zone 3",
+        screw_speed: "Screw speed",
+        drive_load: "Drive load",
+        outlet_temperature: "Outlet temperature"
+    };
+
+    function showError(message) {
+        const errorElement = document.getElementById("error");
+        errorElement.textContent = message;
+        errorElement.style.display = "block";
+    }
+
+    function hideError() {
+        const errorElement = document.getElementById("error");
+        errorElement.textContent = "";
+        errorElement.style.display = "none";
+    }
+
+    async function fetchJSON(url, options = {}) {
+        const response = await fetch(url, options);
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`${url}: ${response.status} ${text}`);
+        }
+
+        return response.json();
+    }
+
+    function formatDate(value) {
+        if (!value) {
+            return "—";
+        }
+
+        return new Date(value).toLocaleString();
+    }
+
+    function formatNumber(value) {
+        if (typeof value !== "number") {
+            return value;
+        }
+
+        return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+    }
+
+    function renderQuality(quality) {
+        const valueElement = document.getElementById("qualityValue");
+        const stateElement = document.getElementById("qualityState");
+
+        valueElement.textContent = `Quality Index: ${formatNumber(quality.value)}`;
+        stateElement.textContent = quality.state;
+
+        stateElement.className = "quality-state";
+        stateElement.classList.add(quality.state || "unknown");
+    }
+
+    function renderParameters(readings) {
+        const container = document.getElementById("parameters");
+
+        if (!readings || readings.length === 0) {
+            container.innerHTML = `<div class="empty">No telemetry readings yet</div>`;
+            return;
+        }
+
+        container.innerHTML = readings.map((reading) => {
+            const name = parameterNames[reading.parameterType] || reading.parameterType;
+
+            return `
+          <article class="parameter-card">
+            <div class="parameter-name">${name}</div>
+            <div class="parameter-value">${formatNumber(reading.value)} ${reading.unit}</div>
+            <div class="parameter-meta">
+              Source: ${reading.sourceId}<br />
+              Measured at: ${formatDate(reading.measuredAt)}
+            </div>
+          </article>
+        `;
+        }).join("");
+    }
+
+    function renderEvents(events) {
+        const container = document.getElementById("events");
+
+        if (!events || events.length === 0) {
+            container.innerHTML = `<div class="empty">No active events</div>`;
+            return;
+        }
+
+        container.innerHTML = events.map((event) => {
+            const isAcknowledged = event.status === "acknowledged";
+            const buttonText = isAcknowledged ? "Acknowledged" : "Acknowledge";
+            const disabled = isAcknowledged ? "disabled" : "";
+
+            return `
+          <article class="event-card">
+            <div class="event-header">
+              <div class="event-level">${event.level} · ${event.parameterType}</div>
+              <div class="event-status">${event.status}</div>
+            </div>
+
+            <div class="event-message">${event.message}</div>
+
+            <div class="event-meta">
+              Created at: ${formatDate(event.createdAt)}<br />
+              Value: ${formatNumber(event.value)} ${event.unit}<br />
+              Source: ${event.sourceId}
+            </div>
+
+            <button ${disabled} onclick="acknowledgeEvent(${event.id})">
+              ${buttonText}
+            </button>
+          </article>
+        `;
+        }).join("");
+    }
+
+    async function acknowledgeEvent(eventId) {
+        try {
+            hideError();
+
+            await fetchJSON(`/api/events/${eventId}/ack`, {
+                method: "POST"
+            });
+
+            await refreshDashboard();
+        } catch (error) {
+            showError(error.message);
+        }
+    }
+
+    async function refreshDashboard() {
+        try {
+            hideError();
+
+            const [quality, telemetry, events] = await Promise.all([
+                fetchJSON("/api/quality/latest"),
+                fetchJSON("/api/telemetry/latest"),
+                fetchJSON("/api/events/active")
+            ]);
+
+            renderQuality(quality);
+            renderParameters(telemetry);
+            renderEvents(events);
+        } catch (error) {
+            showError(error.message);
+        }
+    }
+
+    refreshDashboard();
+    setInterval(refreshDashboard, refreshIntervalMs);
+</script>
+</body>
+</html>

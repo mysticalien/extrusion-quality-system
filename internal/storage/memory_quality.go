@@ -1,47 +1,87 @@
 package storage
 
 import (
+	"context"
 	"sync"
+	"time"
 
 	"extrusion-quality-system/internal/domain"
 )
 
-// MemoryQualityStore stores quality index values in memory.
-// It is used only for tests and early prototypes.
-type MemoryQualityStore struct {
+// MemoryQualityRepository stores quality index values in memory.
+// It is used for tests and early prototypes.
+type MemoryQualityRepository struct {
 	mu      sync.RWMutex
 	nextID  domain.QualityIndexID
 	indexes []domain.QualityIndex
 }
 
-// NewMemoryQualityStore creates an empty in-memory quality index store.
-func NewMemoryQualityStore() *MemoryQualityStore {
-	return &MemoryQualityStore{
+// NewMemoryQualityRepository creates an empty in-memory quality repository.
+func NewMemoryQualityRepository() *MemoryQualityRepository {
+	return &MemoryQualityRepository{
 		nextID: 1,
 	}
 }
 
 // Save stores a quality index value and assigns an in-memory ID.
-func (s *MemoryQualityStore) Save(index domain.QualityIndex) (domain.QualityIndex, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (r *MemoryQualityRepository) Save(
+	_ context.Context,
+	index domain.QualityIndex,
+) (domain.QualityIndex, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	index.ID = s.nextID
-	s.nextID++
+	index.ID = r.nextID
+	r.nextID++
 
-	s.indexes = append(s.indexes, index)
+	r.indexes = append(r.indexes, index)
 
 	return index, nil
 }
 
 // Latest returns the latest stored quality index value.
-func (s *MemoryQualityStore) Latest() (domain.QualityIndex, bool, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (r *MemoryQualityRepository) Latest(_ context.Context) (domain.QualityIndex, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	if len(s.indexes) == 0 {
+	if len(r.indexes) == 0 {
 		return domain.QualityIndex{}, false, nil
 	}
 
-	return s.indexes[len(s.indexes)-1], true, nil
+	return r.indexes[len(r.indexes)-1], true, nil
+}
+
+// History returns quality index values in the given time range.
+func (r *MemoryQualityRepository) History(
+	_ context.Context,
+	from time.Time,
+	to time.Time,
+	limit int,
+) ([]domain.QualityIndex, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	result := make([]domain.QualityIndex, 0)
+
+	for _, index := range r.indexes {
+		if !from.IsZero() && index.CalculatedAt.Before(from) {
+			continue
+		}
+
+		if !to.IsZero() && index.CalculatedAt.After(to) {
+			continue
+		}
+
+		result = append(result, index)
+
+		if len(result) >= limit {
+			break
+		}
+	}
+
+	return result, nil
 }

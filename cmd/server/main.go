@@ -62,14 +62,21 @@ func main() {
 
 	logger.Info("connected to postgres")
 
-	telemetryStore := storage.NewPostgresTelemetryStore(pool)
-	alertStore := storage.NewPostgresAlertStore(pool)
-	qualityStore := storage.NewPostgresQualityStore(pool)
+	telemetryRepository := storage.NewPostgresTelemetryRepository(pool)
+	alertRepository := storage.NewPostgresAlertRepository(pool)
+	qualityRepository := storage.NewPostgresQualityRepository(pool)
 	setpoints := defaultSetpoints()
 
-	telemetryHandler := httphandler.NewTelemetryHandler(logger, telemetryStore, alertStore, qualityStore, setpoints)
-	eventHandler := httphandler.NewEventHandler(logger, alertStore)
-	qualityHandler := httphandler.NewQualityHandler(logger, qualityStore)
+	telemetryHandler := httphandler.NewTelemetryHandler(
+		logger,
+		telemetryRepository,
+		alertRepository,
+		qualityRepository,
+		setpoints,
+	)
+
+	eventHandler := httphandler.NewEventHandler(logger, alertRepository)
+	qualityHandler := httphandler.NewQualityHandler(logger, qualityRepository)
 
 	mux := nethttp.NewServeMux()
 	mux.HandleFunc("/", homeHandler)

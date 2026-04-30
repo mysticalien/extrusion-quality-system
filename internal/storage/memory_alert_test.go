@@ -1,15 +1,17 @@
 package storage
 
 import (
+	"context"
 	"extrusion-quality-system/internal/domain"
 	"testing"
 	"time"
 )
 
-func TestMemoryAlertStoreCreateAllAndActive(t *testing.T) {
-	store := NewMemoryAlertStore()
+func TestMemoryAlertRepositoryCreateAllAndActive(t *testing.T) {
+	ctx := context.Background()
+	repository := NewMemoryAlertRepository()
 
-	activeAlert, err := store.Create(domain.AlertEvent{
+	activeAlert, err := repository.Create(ctx, domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelWarning,
 		Status:        domain.AlertStatusActive,
@@ -23,7 +25,7 @@ func TestMemoryAlertStoreCreateAllAndActive(t *testing.T) {
 		t.Fatalf("create active alert: %v", err)
 	}
 
-	resolvedAlert, err := store.Create(domain.AlertEvent{
+	resolvedAlert, err := repository.Create(ctx, domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelCritical,
 		Status:        domain.AlertStatusResolved,
@@ -45,7 +47,7 @@ func TestMemoryAlertStoreCreateAllAndActive(t *testing.T) {
 		t.Fatalf("expected resolved alert id 2, got %d", resolvedAlert.ID)
 	}
 
-	all, err := store.All()
+	all, err := repository.All(ctx)
 	if err != nil {
 		t.Fatalf("load all alerts: %v", err)
 	}
@@ -54,7 +56,7 @@ func TestMemoryAlertStoreCreateAllAndActive(t *testing.T) {
 		t.Fatalf("expected 2 alerts, got %d", len(all))
 	}
 
-	active, err := store.Active()
+	active, err := repository.Active(ctx)
 	if err != nil {
 		t.Fatalf("load active alerts: %v", err)
 	}
@@ -68,10 +70,11 @@ func TestMemoryAlertStoreCreateAllAndActive(t *testing.T) {
 	}
 }
 
-func TestMemoryAlertStoreAcknowledge(t *testing.T) {
-	store := NewMemoryAlertStore()
+func TestMemoryAlertRepositoryAcknowledge(t *testing.T) {
+	ctx := context.Background()
+	repository := NewMemoryAlertRepository()
 
-	alert, err := store.Create(domain.AlertEvent{
+	alert, err := repository.Create(ctx, domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelWarning,
 		Status:        domain.AlertStatusActive,
@@ -85,7 +88,7 @@ func TestMemoryAlertStoreAcknowledge(t *testing.T) {
 		t.Fatalf("create alert: %v", err)
 	}
 
-	updated, found, err := store.Acknowledge(alert.ID, nil)
+	updated, found, err := repository.Acknowledge(ctx, alert.ID, nil)
 	if err != nil {
 		t.Fatalf("acknowledge alert: %v", err)
 	}
@@ -103,10 +106,11 @@ func TestMemoryAlertStoreAcknowledge(t *testing.T) {
 	}
 }
 
-func TestMemoryAlertStoreResolve(t *testing.T) {
-	store := NewMemoryAlertStore()
+func TestMemoryAlertRepositoryResolve(t *testing.T) {
+	ctx := context.Background()
+	repository := NewMemoryAlertRepository()
 
-	alert, err := store.Create(domain.AlertEvent{
+	alert, err := repository.Create(ctx, domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelCritical,
 		Status:        domain.AlertStatusActive,
@@ -120,7 +124,7 @@ func TestMemoryAlertStoreResolve(t *testing.T) {
 		t.Fatalf("create alert: %v", err)
 	}
 
-	updated, found, err := store.Resolve(alert.ID)
+	updated, found, err := repository.Resolve(ctx, alert.ID)
 	if err != nil {
 		t.Fatalf("resolve alert: %v", err)
 	}
@@ -138,10 +142,11 @@ func TestMemoryAlertStoreResolve(t *testing.T) {
 	}
 }
 
-func TestMemoryAlertStoreNotFound(t *testing.T) {
-	store := NewMemoryAlertStore()
+func TestMemoryAlertRepositoryNotFound(t *testing.T) {
+	ctx := context.Background()
+	repository := NewMemoryAlertRepository()
 
-	_, found, err := store.Acknowledge(999, nil)
+	_, found, err := repository.Acknowledge(ctx, 999, nil)
 	if err != nil {
 		t.Fatalf("acknowledge alert: %v", err)
 	}
@@ -150,7 +155,7 @@ func TestMemoryAlertStoreNotFound(t *testing.T) {
 		t.Fatalf("expected alert not to be found")
 	}
 
-	_, found, err = store.Resolve(999)
+	_, found, err = repository.Resolve(ctx, 999)
 	if err != nil {
 		t.Fatalf("resolve alert: %v", err)
 	}

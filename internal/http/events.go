@@ -11,15 +11,15 @@ import (
 
 // EventHandler handles alert event API requests.
 type EventHandler struct {
-	logger     *slog.Logger
-	alertStore storage.AlertStore
+	logger          *slog.Logger
+	alertRepository storage.AlertRepository
 }
 
 // NewEventHandler creates an alert event HTTP handler.
-func NewEventHandler(logger *slog.Logger, alertStore storage.AlertStore) *EventHandler {
+func NewEventHandler(logger *slog.Logger, alertRepository storage.AlertRepository) *EventHandler {
 	return &EventHandler{
-		logger:     logger,
-		alertStore: alertStore,
+		logger:          logger,
+		alertRepository: alertRepository,
 	}
 }
 
@@ -36,7 +36,7 @@ func (h *EventHandler) List(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	events, err := h.alertStore.All()
+	events, err := h.alertRepository.All(r.Context())
 	if err != nil {
 		h.logger.Error("load alert events failed", "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to load alert events")
@@ -62,16 +62,16 @@ func (h *EventHandler) Action(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 	switch action {
 	case "ack":
-		h.acknowledge(w, id)
+		h.acknowledge(w, r, id)
 	case "resolve":
-		h.resolve(w, id)
+		h.resolve(w, r, id)
 	default:
 		nethttp.NotFound(w, r)
 	}
 }
 
-func (h *EventHandler) acknowledge(w nethttp.ResponseWriter, id domain.AlertID) {
-	event, found, err := h.alertStore.Acknowledge(id, nil)
+func (h *EventHandler) acknowledge(w nethttp.ResponseWriter, r *nethttp.Request, id domain.AlertID) {
+	event, found, err := h.alertRepository.Acknowledge(r.Context(), id, nil)
 	if err != nil {
 		h.logger.Error("acknowledge alert failed", "alertId", id, "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to acknowledge alert")
@@ -87,8 +87,8 @@ func (h *EventHandler) acknowledge(w nethttp.ResponseWriter, id domain.AlertID) 
 	writeJSON(w, nethttp.StatusOK, event)
 }
 
-func (h *EventHandler) resolve(w nethttp.ResponseWriter, id domain.AlertID) {
-	event, found, err := h.alertStore.Resolve(id)
+func (h *EventHandler) resolve(w nethttp.ResponseWriter, r *nethttp.Request, id domain.AlertID) {
+	event, found, err := h.alertRepository.Resolve(r.Context(), id)
 	if err != nil {
 		h.logger.Error("resolve alert failed", "alertId", id, "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to resolve alert")

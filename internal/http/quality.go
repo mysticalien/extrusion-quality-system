@@ -9,15 +9,15 @@ import (
 
 // QualityHandler handles quality index API requests.
 type QualityHandler struct {
-	logger       *slog.Logger
-	qualityStore storage.QualityStore
+	logger            *slog.Logger
+	qualityRepository storage.QualityRepository
 }
 
 // NewQualityHandler creates a quality index HTTP handler.
-func NewQualityHandler(logger *slog.Logger, qualityStore storage.QualityStore) *QualityHandler {
+func NewQualityHandler(logger *slog.Logger, qualityRepository storage.QualityRepository) *QualityHandler {
 	return &QualityHandler{
-		logger:       logger,
-		qualityStore: qualityStore,
+		logger:            logger,
+		qualityRepository: qualityRepository,
 	}
 }
 
@@ -34,7 +34,7 @@ func (h *QualityHandler) Latest(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	qualityIndex, found, err := h.qualityStore.Latest()
+	qualityIndex, found, err := h.qualityRepository.Latest(r.Context())
 	if err != nil {
 		h.logger.Error("load latest quality index failed", "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to load latest quality index")

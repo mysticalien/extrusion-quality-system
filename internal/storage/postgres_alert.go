@@ -11,21 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresAlertStore stores alert events in PostgreSQL.
-type PostgresAlertStore struct {
+// PostgresAlertRepository stores alert events in PostgreSQL.
+type PostgresAlertRepository struct {
 	pool *pgxpool.Pool
 }
 
-// NewPostgresAlertStore creates a PostgreSQL alert store.
-func NewPostgresAlertStore(pool *pgxpool.Pool) *PostgresAlertStore {
-	return &PostgresAlertStore{
+// NewPostgresAlertRepository creates a PostgreSQL alert repository.
+func NewPostgresAlertRepository(pool *pgxpool.Pool) *PostgresAlertRepository {
+	return &PostgresAlertRepository{
 		pool: pool,
 	}
 }
 
 // Create stores an alert event in PostgreSQL.
-func (s *PostgresAlertStore) Create(alert domain.AlertEvent) (domain.AlertEvent, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *PostgresAlertRepository) Create(
+	ctx context.Context,
+	alert domain.AlertEvent,
+) (domain.AlertEvent, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	if alert.Status == "" {
@@ -36,7 +39,7 @@ func (s *PostgresAlertStore) Create(alert domain.AlertEvent) (domain.AlertEvent,
 		alert.CreatedAt = time.Now().UTC()
 	}
 
-	err := s.pool.QueryRow(
+	err := r.pool.QueryRow(
 		ctx,
 		`
 		INSERT INTO alert_events (
@@ -76,11 +79,11 @@ func (s *PostgresAlertStore) Create(alert domain.AlertEvent) (domain.AlertEvent,
 }
 
 // All returns all alert events ordered by creation time.
-func (s *PostgresAlertStore) All() ([]domain.AlertEvent, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *PostgresAlertRepository) All(ctx context.Context) ([]domain.AlertEvent, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	rows, err := s.pool.Query(
+	rows, err := r.pool.Query(
 		ctx,
 		`
 		SELECT
@@ -109,11 +112,11 @@ func (s *PostgresAlertStore) All() ([]domain.AlertEvent, error) {
 }
 
 // Active returns all active or acknowledged alert events.
-func (s *PostgresAlertStore) Active() ([]domain.AlertEvent, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *PostgresAlertRepository) Active(ctx context.Context) ([]domain.AlertEvent, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	rows, err := s.pool.Query(
+	rows, err := r.pool.Query(
 		ctx,
 		`
 		SELECT
@@ -145,8 +148,12 @@ func (s *PostgresAlertStore) Active() ([]domain.AlertEvent, error) {
 }
 
 // Acknowledge marks an alert event as acknowledged.
-func (s *PostgresAlertStore) Acknowledge(id domain.AlertID, userID *domain.UserID) (domain.AlertEvent, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *PostgresAlertRepository) Acknowledge(
+	ctx context.Context,
+	id domain.AlertID,
+	userID *domain.UserID,
+) (domain.AlertEvent, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	var acknowledgedBy any
@@ -155,7 +162,7 @@ func (s *PostgresAlertStore) Acknowledge(id domain.AlertID, userID *domain.UserI
 	}
 
 	alert, err := scanAlertRow(
-		s.pool.QueryRow(
+		r.pool.QueryRow(
 			ctx,
 			`
 			UPDATE alert_events
@@ -196,12 +203,15 @@ func (s *PostgresAlertStore) Acknowledge(id domain.AlertID, userID *domain.UserI
 }
 
 // Resolve marks an alert event as resolved.
-func (s *PostgresAlertStore) Resolve(id domain.AlertID) (domain.AlertEvent, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *PostgresAlertRepository) Resolve(
+	ctx context.Context,
+	id domain.AlertID,
+) (domain.AlertEvent, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	alert, err := scanAlertRow(
-		s.pool.QueryRow(
+		r.pool.QueryRow(
 			ctx,
 			`
 			UPDATE alert_events

@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/storage"
@@ -83,7 +84,8 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, telemetryStore, alertStore, qualityStore := newTestTelemetryHandler()
+			ctx := context.Background()
+			handler, telemetryRepository, alertRepository, qualityRepository := newTestTelemetryHandler()
 
 			req := httptest.NewRequest(
 				nethttp.MethodPost,
@@ -151,7 +153,7 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 				}
 			}
 
-			savedReadings, err := telemetryStore.All()
+			savedReadings, err := telemetryRepository.All(ctx)
 			if err != nil {
 				t.Fatalf("load telemetry readings: %v", err)
 			}
@@ -160,7 +162,7 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 				t.Fatalf("expected %d saved readings, got %d", tt.expectedSavedCount, len(savedReadings))
 			}
 
-			alerts, err := alertStore.All()
+			alerts, err := alertRepository.All(ctx)
 			if err != nil {
 				t.Fatalf("load alerts: %v", err)
 			}
@@ -185,7 +187,7 @@ func TestTelemetryHandlerCreate(t *testing.T) {
 				}
 			}
 
-			latestQualityIndex, found, err := qualityStore.Latest()
+			latestQualityIndex, found, err := qualityRepository.Latest(ctx)
 			if err != nil {
 				t.Fatalf("load latest quality index: %v", err)
 			}
@@ -307,7 +309,8 @@ func TestTelemetryHandlerCreateInvalidRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, telemetryStore, alertStore, qualityStore := newTestTelemetryHandler()
+			ctx := context.Background()
+			handler, telemetryRepository, alertRepository, qualityRepository := newTestTelemetryHandler()
 
 			req := httptest.NewRequest(
 				tt.method,
@@ -333,7 +336,7 @@ func TestTelemetryHandlerCreateInvalidRequests(t *testing.T) {
 				t.Fatalf("expected error %q, got %q", tt.expectedError, response.Error)
 			}
 
-			readings, err := telemetryStore.All()
+			readings, err := telemetryRepository.All(ctx)
 			if err != nil {
 				t.Fatalf("load telemetry readings: %v", err)
 			}
@@ -342,7 +345,7 @@ func TestTelemetryHandlerCreateInvalidRequests(t *testing.T) {
 				t.Fatalf("expected no saved readings for invalid request")
 			}
 
-			alerts, err := alertStore.All()
+			alerts, err := alertRepository.All(ctx)
 			if err != nil {
 				t.Fatalf("load alerts: %v", err)
 			}
@@ -351,7 +354,7 @@ func TestTelemetryHandlerCreateInvalidRequests(t *testing.T) {
 				t.Fatalf("expected no stored alerts for invalid request")
 			}
 
-			_, found, err := qualityStore.Latest()
+			_, found, err := qualityRepository.Latest(ctx)
 			if err != nil {
 				t.Fatalf("load latest quality index: %v", err)
 			}
@@ -365,15 +368,15 @@ func TestTelemetryHandlerCreateInvalidRequests(t *testing.T) {
 
 func newTestTelemetryHandler() (
 	*TelemetryHandler,
-	*storage.MemoryTelemetryStore,
-	*storage.MemoryAlertStore,
-	*storage.MemoryQualityStore,
+	*storage.MemoryTelemetryRepository,
+	*storage.MemoryAlertRepository,
+	*storage.MemoryQualityRepository,
 ) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	telemetryStore := storage.NewMemoryTelemetryStore()
-	alertStore := storage.NewMemoryAlertStore()
-	qualityStore := storage.NewMemoryQualityStore()
+	telemetryRepository := storage.NewMemoryTelemetryRepository()
+	alertRepository := storage.NewMemoryAlertRepository()
+	qualityRepository := storage.NewMemoryQualityRepository()
 
 	setpoints := map[domain.ParameterType]domain.Setpoint{
 		domain.ParameterPressure: {
@@ -394,7 +397,13 @@ func newTestTelemetryHandler() (
 		},
 	}
 
-	handler := NewTelemetryHandler(logger, telemetryStore, alertStore, qualityStore, setpoints)
+	handler := NewTelemetryHandler(
+		logger,
+		telemetryRepository,
+		alertRepository,
+		qualityRepository,
+		setpoints,
+	)
 
-	return handler, telemetryStore, alertStore, qualityStore
+	return handler, telemetryRepository, alertRepository, qualityRepository
 }

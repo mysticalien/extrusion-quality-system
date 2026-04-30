@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/storage"
@@ -13,11 +14,12 @@ import (
 )
 
 func TestEventHandlerList(t *testing.T) {
+	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	alertStore := storage.NewMemoryAlertStore()
-	handler := NewEventHandler(logger, alertStore)
+	alertRepository := storage.NewMemoryAlertRepository()
+	handler := NewEventHandler(logger, alertRepository)
 
-	_, err := alertStore.Create(domain.AlertEvent{
+	_, err := alertRepository.Create(ctx, domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelWarning,
 		Status:        domain.AlertStatusActive,
@@ -60,8 +62,8 @@ func TestEventHandlerList(t *testing.T) {
 
 func TestEventHandlerListMethodNotAllowed(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	alertStore := storage.NewMemoryAlertStore()
-	handler := NewEventHandler(logger, alertStore)
+	alertRepository := storage.NewMemoryAlertRepository()
+	handler := NewEventHandler(logger, alertRepository)
 
 	req := httptest.NewRequest(nethttp.MethodPost, "/api/events", nil)
 	rec := httptest.NewRecorder()
@@ -78,11 +80,12 @@ func TestEventHandlerListMethodNotAllowed(t *testing.T) {
 }
 
 func TestEventHandlerAcknowledge(t *testing.T) {
+	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	alertStore := storage.NewMemoryAlertStore()
-	handler := NewEventHandler(logger, alertStore)
+	alertRepository := storage.NewMemoryAlertRepository()
+	handler := NewEventHandler(logger, alertRepository)
 
-	alert, err := alertStore.Create(domain.AlertEvent{
+	alert, err := alertRepository.Create(ctx, domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelWarning,
 		Status:        domain.AlertStatusActive,
@@ -124,11 +127,12 @@ func TestEventHandlerAcknowledge(t *testing.T) {
 }
 
 func TestEventHandlerResolve(t *testing.T) {
+	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	alertStore := storage.NewMemoryAlertStore()
-	handler := NewEventHandler(logger, alertStore)
+	alertRepository := storage.NewMemoryAlertRepository()
+	handler := NewEventHandler(logger, alertRepository)
 
-	alert, err := alertStore.Create(domain.AlertEvent{
+	alert, err := alertRepository.Create(ctx, domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelCritical,
 		Status:        domain.AlertStatusActive,
@@ -171,8 +175,8 @@ func TestEventHandlerResolve(t *testing.T) {
 
 func TestEventHandlerActionNotFound(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	alertStore := storage.NewMemoryAlertStore()
-	handler := NewEventHandler(logger, alertStore)
+	alertRepository := storage.NewMemoryAlertRepository()
+	handler := NewEventHandler(logger, alertRepository)
 
 	tests := []struct {
 		name string
@@ -212,8 +216,8 @@ func TestEventHandlerActionNotFound(t *testing.T) {
 
 func TestEventHandlerActionMethodNotAllowed(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	alertStore := storage.NewMemoryAlertStore()
-	handler := NewEventHandler(logger, alertStore)
+	alertRepository := storage.NewMemoryAlertRepository()
+	handler := NewEventHandler(logger, alertRepository)
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/api/events/1/ack", nil)
 	rec := httptest.NewRecorder()

@@ -38,27 +38,27 @@ type TelemetryCreateResponse struct {
 
 // TelemetryHandler handles telemetry API requests.
 type TelemetryHandler struct {
-	logger         *slog.Logger
-	telemetryStore storage.TelemetryStore
-	alertStore     storage.AlertStore
-	qualityStore   storage.QualityStore
-	setpoints      map[domain.ParameterType]domain.Setpoint
+	logger              *slog.Logger
+	telemetryRepository storage.TelemetryRepository
+	alertRepository     storage.AlertRepository
+	qualityRepository   storage.QualityRepository
+	setpoints           map[domain.ParameterType]domain.Setpoint
 }
 
 // NewTelemetryHandler creates a telemetry HTTP handler.
 func NewTelemetryHandler(
 	logger *slog.Logger,
-	telemetryStore storage.TelemetryStore,
-	alertStore storage.AlertStore,
-	qualityStore storage.QualityStore,
+	telemetryRepository storage.TelemetryRepository,
+	alertRepository storage.AlertRepository,
+	qualityRepository storage.QualityRepository,
 	setpoints map[domain.ParameterType]domain.Setpoint,
 ) *TelemetryHandler {
 	return &TelemetryHandler{
-		logger:         logger,
-		telemetryStore: telemetryStore,
-		alertStore:     alertStore,
-		qualityStore:   qualityStore,
-		setpoints:      setpoints,
+		logger:              logger,
+		telemetryRepository: telemetryRepository,
+		alertRepository:     alertRepository,
+		qualityRepository:   qualityRepository,
+		setpoints:           setpoints,
 	}
 }
 
@@ -118,7 +118,7 @@ func (h *TelemetryHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) 
 		CreatedAt:     time.Now().UTC(),
 	}
 
-	reading, err := h.telemetryStore.Save(reading)
+	reading, err := h.telemetryRepository.Save(r.Context(), reading)
 	if err != nil {
 		h.logger.Error("save telemetry reading failed", "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to save telemetry reading")
@@ -143,7 +143,7 @@ func (h *TelemetryHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) 
 			CreatedAt:     time.Now().UTC(),
 		}
 
-		alert, err = h.alertStore.Create(alert)
+		alert, err = h.alertRepository.Create(r.Context(), alert)
 		if err != nil {
 			h.logger.Error("save alert event failed", "error", err)
 			writeError(w, nethttp.StatusInternalServerError, "failed to save alert event")
@@ -157,7 +157,7 @@ func (h *TelemetryHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) 
 		alertLevel = &levelCopy
 	}
 
-	activeAlerts, err := h.alertStore.Active()
+	activeAlerts, err := h.alertRepository.Active(r.Context())
 	if err != nil {
 		h.logger.Error("load active alerts failed", "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to load active alerts")
@@ -166,7 +166,7 @@ func (h *TelemetryHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) 
 
 	qualityIndex := analytics.CalculateQualityIndex(activeAlerts)
 
-	qualityIndex, err = h.qualityStore.Save(qualityIndex)
+	qualityIndex, err = h.qualityRepository.Save(r.Context(), qualityIndex)
 	if err != nil {
 		h.logger.Error("save quality index failed", "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to save quality index")

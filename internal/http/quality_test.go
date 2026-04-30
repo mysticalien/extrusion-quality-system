@@ -1,8 +1,8 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
-	"extrusion-quality-system/internal/analytics"
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/storage"
 	"io"
@@ -10,6 +10,7 @@ import (
 	nethttp "net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestQualityHandlerLatest(t *testing.T) {
@@ -34,7 +35,7 @@ func TestQualityHandlerLatest(t *testing.T) {
 				State:            domain.QualityStateStable,
 				ParameterPenalty: 15,
 				AnomalyPenalty:   0,
-				CalculatedAt:     analytics.CalculateQualityIndex(nil).CalculatedAt,
+				CalculatedAt:     time.Now().UTC(),
 			},
 			expectedValue:            85,
 			expectedState:            domain.QualityStateStable,
@@ -47,7 +48,7 @@ func TestQualityHandlerLatest(t *testing.T) {
 				State:            domain.QualityStateUnstable,
 				ParameterPenalty: 45,
 				AnomalyPenalty:   0,
-				CalculatedAt:     analytics.CalculateQualityIndex(nil).CalculatedAt,
+				CalculatedAt:     time.Now().UTC(),
 			},
 			expectedValue:            55,
 			expectedState:            domain.QualityStateUnstable,
@@ -57,17 +58,18 @@ func TestQualityHandlerLatest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			qualityStore := storage.NewMemoryQualityStore()
+			qualityRepository := storage.NewMemoryQualityRepository()
 
 			if tt.qualityIndex != nil {
-				_, err := qualityStore.Save(*tt.qualityIndex)
+				_, err := qualityRepository.Save(ctx, *tt.qualityIndex)
 				if err != nil {
 					t.Fatalf("save quality index: %v", err)
 				}
 			}
 
-			handler := NewQualityHandler(logger, qualityStore)
+			handler := NewQualityHandler(logger, qualityRepository)
 
 			req := httptest.NewRequest(nethttp.MethodGet, "/api/quality/latest", nil)
 			rec := httptest.NewRecorder()
@@ -137,8 +139,8 @@ func TestQualityHandlerLatestInvalidRequests(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			qualityStore := storage.NewMemoryQualityStore()
-			handler := NewQualityHandler(logger, qualityStore)
+			qualityRepository := storage.NewMemoryQualityRepository()
+			handler := NewQualityHandler(logger, qualityRepository)
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()

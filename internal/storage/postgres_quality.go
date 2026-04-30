@@ -10,24 +10,27 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresQualityStore stores quality index values in PostgreSQL.
-type PostgresQualityStore struct {
+// PostgresQualityRepository stores quality index values in PostgreSQL.
+type PostgresQualityRepository struct {
 	pool *pgxpool.Pool
 }
 
-// NewPostgresQualityStore creates a PostgreSQL quality index store.
-func NewPostgresQualityStore(pool *pgxpool.Pool) *PostgresQualityStore {
-	return &PostgresQualityStore{
+// NewPostgresQualityRepository creates a PostgreSQL quality repository.
+func NewPostgresQualityRepository(pool *pgxpool.Pool) *PostgresQualityRepository {
+	return &PostgresQualityRepository{
 		pool: pool,
 	}
 }
 
 // Save stores a quality index value in PostgreSQL.
-func (s *PostgresQualityStore) Save(index domain.QualityIndex) (domain.QualityIndex, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *PostgresQualityRepository) Save(
+	ctx context.Context,
+	index domain.QualityIndex,
+) (domain.QualityIndex, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	err := s.pool.QueryRow(
+	err := r.pool.QueryRow(
 		ctx,
 		`
 		INSERT INTO quality_index_values (
@@ -55,13 +58,13 @@ func (s *PostgresQualityStore) Save(index domain.QualityIndex) (domain.QualityIn
 }
 
 // Latest returns the latest stored quality index value.
-func (s *PostgresQualityStore) Latest() (domain.QualityIndex, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *PostgresQualityRepository) Latest(ctx context.Context) (domain.QualityIndex, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	var index domain.QualityIndex
 
-	err := s.pool.QueryRow(
+	err := r.pool.QueryRow(
 		ctx,
 		`
 		SELECT
@@ -93,4 +96,69 @@ func (s *PostgresQualityStore) Latest() (domain.QualityIndex, bool, error) {
 	}
 
 	return index, true, nil
+}
+
+// History returns quality index values in the given time range.
+func (r *PostgresQualityRepository) History(
+	ctx context.Context,
+	from time.Time,
+	to time.Time,
+	limit int,
+) ([]domain.QualityIndex, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.pool.Query(
+		ctx,
+		`
+		SELECT
+			id,
+			value,
+			state,
+			parameter_penalty,
+			anomaly_penalty,
+			calculated_at
+		FROM quality_index_values
+		WHERE ($1::timestamptz IS NULL OR calculated_at >= $1)
+		  AND ($2::timestamptz IS NULL OR calculated_at <= $2)
+		ORDER BY calculated_at ASC, id ASC
+		LIMIT $3
+		`,
+		nullableTime(from),
+		nullableTime(to),
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]domain.QualityIndex, 0)
+
+	for rows.Next() {
+		var index domain.QualityIndex
+
+		if err := rows.Scan(
+			&index.ID,
+			&index.Value,
+			&index.State,
+			&index.ParameterPenalty,
+			&index.AnomalyPenalty,
+			&index.CalculatedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		result = append(result, index)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }

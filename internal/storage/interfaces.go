@@ -26,6 +26,22 @@ type AlertRepository interface {
 	Create(ctx context.Context, alert domain.AlertEvent) (domain.AlertEvent, error)
 	All(ctx context.Context) ([]domain.AlertEvent, error)
 	Active(ctx context.Context) ([]domain.AlertEvent, error)
+
+	FindOpenByParameter(
+		ctx context.Context,
+		parameterType domain.ParameterType,
+	) (domain.AlertEvent, bool, error)
+
+	UpdateOpen(
+		ctx context.Context,
+		alert domain.AlertEvent,
+	) (domain.AlertEvent, bool, error)
+
+	ResolveOpenByParameter(
+		ctx context.Context,
+		parameterType domain.ParameterType,
+	) (int64, error)
+
 	Acknowledge(ctx context.Context, id domain.AlertID, userID *domain.UserID) (domain.AlertEvent, bool, error)
 	Resolve(ctx context.Context, id domain.AlertID) (domain.AlertEvent, bool, error)
 }

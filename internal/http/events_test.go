@@ -232,14 +232,13 @@ func TestEventHandlerActionMethodNotAllowed(t *testing.T) {
 		t.Fatalf("expected Allow header %q, got %q", nethttp.MethodPost, rec.Header().Get("Allow"))
 	}
 }
-
 func TestEventHandlerActive(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	alertRepository := storage.NewMemoryAlertRepository()
 	handler := NewEventHandler(logger, alertRepository)
 
-	activeAlert, err := alertRepository.Create(ctx, domain.AlertEvent{
+	activePressureAlert, err := alertRepository.Create(ctx, domain.AlertEvent{
 		ParameterType: domain.ParameterPressure,
 		Level:         domain.AlertLevelWarning,
 		Status:        domain.AlertStatusActive,
@@ -250,31 +249,31 @@ func TestEventHandlerActive(t *testing.T) {
 		CreatedAt:     time.Now().UTC(),
 	})
 	if err != nil {
-		t.Fatalf("create active alert: %v", err)
+		t.Fatalf("create active pressure alert: %v", err)
 	}
 
-	acknowledgedAlert, err := alertRepository.Create(ctx, domain.AlertEvent{
-		ParameterType: domain.ParameterPressure,
+	acknowledgedMoistureAlert, err := alertRepository.Create(ctx, domain.AlertEvent{
+		ParameterType: domain.ParameterMoisture,
 		Level:         domain.AlertLevelCritical,
 		Status:        domain.AlertStatusAcknowledged,
-		Value:         95,
-		Unit:          domain.UnitBar,
+		Value:         19.5,
+		Unit:          domain.UnitPercent,
 		SourceID:      domain.SourceID("simulator"),
-		Message:       "pressure critical",
+		Message:       "moisture critical",
 		CreatedAt:     time.Now().UTC(),
 	})
 	if err != nil {
-		t.Fatalf("create acknowledged alert: %v", err)
+		t.Fatalf("create acknowledged moisture alert: %v", err)
 	}
 
 	_, err = alertRepository.Create(ctx, domain.AlertEvent{
-		ParameterType: domain.ParameterPressure,
+		ParameterType: domain.ParameterDriveLoad,
 		Level:         domain.AlertLevelWarning,
 		Status:        domain.AlertStatusResolved,
-		Value:         90,
-		Unit:          domain.UnitBar,
+		Value:         88,
+		Unit:          domain.UnitPercent,
 		SourceID:      domain.SourceID("simulator"),
-		Message:       "resolved pressure warning",
+		Message:       "resolved drive load warning",
 		CreatedAt:     time.Now().UTC(),
 	})
 	if err != nil {
@@ -299,26 +298,26 @@ func TestEventHandlerActive(t *testing.T) {
 		t.Fatalf("expected 2 active alerts, got %d", len(response))
 	}
 
-	foundActive := false
-	foundAcknowledged := false
+	foundPressure := false
+	foundMoisture := false
 
 	for _, alert := range response {
 		switch alert.ID {
-		case activeAlert.ID:
-			foundActive = true
-		case acknowledgedAlert.ID:
-			foundAcknowledged = true
+		case activePressureAlert.ID:
+			foundPressure = true
+		case acknowledgedMoistureAlert.ID:
+			foundMoisture = true
 		default:
 			t.Fatalf("unexpected alert id %d in active response", alert.ID)
 		}
 	}
 
-	if !foundActive {
-		t.Fatalf("expected active alert in response")
+	if !foundPressure {
+		t.Fatalf("expected active pressure alert in response")
 	}
 
-	if !foundAcknowledged {
-		t.Fatalf("expected acknowledged alert in response")
+	if !foundMoisture {
+		t.Fatalf("expected acknowledged moisture alert in response")
 	}
 }
 

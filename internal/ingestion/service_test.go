@@ -245,3 +245,125 @@ func newTestService() (
 
 	return service, telemetryRepository, alertRepository, qualityRepository
 }
+
+func TestServiceProcessUpdatesExistingOpenAlert(t *testing.T) {
+	ctx := context.Background()
+	service, _, alertRepository, qualityRepository := newTestService()
+
+	firstResult, err := service.Process(ctx, TelemetryInput{
+		ParameterType: domain.ParameterPressure,
+		Value:         82.5,
+		Unit:          domain.UnitBar,
+		SourceID:      domain.SourceID("simulator"),
+		MeasuredAt:    time.Date(2026, 4, 27, 18, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("process first telemetry: %v", err)
+	}
+
+	if !firstResult.AlertCreated {
+		t.Fatalf("expected first alert to be created")
+	}
+
+	secondResult, err := service.Process(ctx, TelemetryInput{
+		ParameterType: domain.ParameterPressure,
+		Value:         85,
+		Unit:          domain.UnitBar,
+		SourceID:      domain.SourceID("simulator"),
+		MeasuredAt:    time.Date(2026, 4, 27, 18, 0, 1, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("process second telemetry: %v", err)
+	}
+
+	if secondResult.AlertCreated {
+		t.Fatalf("expected second alert not to create duplicate")
+	}
+
+	if !secondResult.AlertUpdated {
+		t.Fatalf("expected second telemetry to update existing alert")
+	}
+
+	alerts, err := alertRepository.Active(ctx)
+	if err != nil {
+		t.Fatalf("load active alerts: %v", err)
+	}
+
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 active alert, got %d", len(alerts))
+	}
+
+	if alerts[0].Value != 85 {
+		t.Fatalf("expected alert value to be updated to 85, got %.2f", alerts[0].Value)
+	}
+
+	qualityIndex, found, err := qualityRepository.Latest(ctx)
+	if err != nil {
+		t.Fatalf("load latest quality index: %v", err)
+	}
+
+	if !found {
+		t.Fatalf("expected quality index")
+	}
+
+	if qualityIndex.Value != 85 {
+		t.Fatalf("expected quality index 85, got %.2f", qualityIndex.Value)
+	}
+}
+
+func TestServiceProcessResolvesOpenAlertWhenParameterReturnsToNormal(t *testing.T) {
+	ctx := context.Background()
+	service, _, alertRepository, qualityRepository := newTestService()
+
+	_, err := service.Process(ctx, TelemetryInput{
+		ParameterType: domain.ParameterPressure,
+		Value:         82.5,
+		Unit:          domain.UnitBar,
+		SourceID:      domain.SourceID("simulator"),
+		MeasuredAt:    time.Date(2026, 4, 27, 18, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("process warning telemetry: %v", err)
+	}
+
+	result, err := service.Process(ctx, TelemetryInput{
+		ParameterType: domain.ParameterPressure,
+		Value:         65,
+		Unit:          domain.UnitBar,
+		SourceID:      domain.SourceID("simulator"),
+		MeasuredAt:    time.Date(2026, 4, 27, 18, 0, 1, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("process normal telemetry: %v", err)
+	}
+
+	if result.State != domain.ParameterStateNormal {
+		t.Fatalf("expected normal state, got %q", result.State)
+	}
+
+	if result.ResolvedAlerts != 1 {
+		t.Fatalf("expected 1 resolved alert, got %d", result.ResolvedAlerts)
+	}
+
+	activeAlerts, err := alertRepository.Active(ctx)
+	if err != nil {
+		t.Fatalf("load active alerts: %v", err)
+	}
+
+	if len(activeAlerts) != 0 {
+		t.Fatalf("expected no active alerts, got %d", len(activeAlerts))
+	}
+
+	qualityIndex, found, err := qualityRepository.Latest(ctx)
+	if err != nil {
+		t.Fatalf("load latest quality index: %v", err)
+	}
+
+	if !found {
+		t.Fatalf("expected quality index")
+	}
+
+	if qualityIndex.Value != 100 {
+		t.Fatalf("expected quality index 100, got %.2f", qualityIndex.Value)
+	}
+}

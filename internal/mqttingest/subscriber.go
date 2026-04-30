@@ -12,23 +12,28 @@ import (
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
 
+// TelemetrySink accepts telemetry messages for further processing.
+type TelemetrySink interface {
+	Submit(ctx context.Context, input ingestion.TelemetryInput) error
+}
+
 // Subscriber receives telemetry readings from MQTT broker.
 type Subscriber struct {
-	logger           *slog.Logger
-	cfg              config.MQTTConfig
-	ingestionService *ingestion.Service
+	logger *slog.Logger
+	cfg    config.MQTTConfig
+	sink   TelemetrySink
 }
 
 // NewSubscriber creates MQTT telemetry subscriber.
 func NewSubscriber(
 	logger *slog.Logger,
 	cfg config.MQTTConfig,
-	ingestionService *ingestion.Service,
+	sink TelemetrySink,
 ) *Subscriber {
 	return &Subscriber{
-		logger:           logger,
-		cfg:              cfg,
-		ingestionService: ingestionService,
+		logger: logger,
+		cfg:    cfg,
+		sink:   sink,
 	}
 }
 
@@ -66,7 +71,7 @@ func (s *Subscriber) Start(ctx context.Context) error {
 		func(_ paho.Client, message paho.Message) {
 			if err := s.handlePayload(context.Background(), message.Payload()); err != nil {
 				s.logger.Error(
-					"process mqtt telemetry message failed",
+					"enqueue mqtt telemetry message failed",
 					"topic", message.Topic(),
 					"error", err,
 				)
@@ -101,8 +106,8 @@ func (s *Subscriber) handlePayload(ctx context.Context, payload []byte) error {
 		return fmt.Errorf("decode mqtt telemetry payload: %w", err)
 	}
 
-	if _, err := s.ingestionService.Process(ctx, input); err != nil {
-		return fmt.Errorf("process mqtt telemetry payload: %w", err)
+	if err := s.sink.Submit(ctx, input); err != nil {
+		return fmt.Errorf("submit mqtt telemetry payload: %w", err)
 	}
 
 	return nil

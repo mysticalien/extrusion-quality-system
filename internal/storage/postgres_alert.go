@@ -111,7 +111,7 @@ func (r *PostgresAlertRepository) All(ctx context.Context) ([]domain.AlertEvent,
 	return scanAlerts(rows)
 }
 
-// Active returns all active or acknowledged alert events.
+// Active returns the latest active or acknowledged alert for each parameter.
 func (r *PostgresAlertRepository) Active(ctx context.Context) ([]domain.AlertEvent, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -132,8 +132,24 @@ func (r *PostgresAlertRepository) Active(ctx context.Context) ([]domain.AlertEve
 			acknowledged_at,
 			acknowledged_by,
 			resolved_at
-		FROM alert_events
-		WHERE status IN ($1, $2)
+		FROM (
+			SELECT DISTINCT ON (parameter_type)
+				id,
+				parameter_type,
+				level,
+				status,
+				value,
+				unit,
+				source_id,
+				message,
+				created_at,
+				acknowledged_at,
+				acknowledged_by,
+				resolved_at
+			FROM alert_events
+			WHERE status IN ($1, $2)
+			ORDER BY parameter_type, created_at DESC, id DESC
+		) latest_open_alerts
 		ORDER BY created_at DESC, id DESC
 		`,
 		domain.AlertStatusActive,
@@ -145,6 +161,141 @@ func (r *PostgresAlertRepository) Active(ctx context.Context) ([]domain.AlertEve
 	defer rows.Close()
 
 	return scanAlerts(rows)
+}
+
+// FindOpenByParameter returns the latest open alert for the parameter.
+func (r *PostgresAlertRepository) FindOpenByParameter(
+	ctx context.Context,
+	parameterType domain.ParameterType,
+) (domain.AlertEvent, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	alert, err := scanAlertRow(
+		r.pool.QueryRow(
+			ctx,
+			`
+			SELECT
+				id,
+				parameter_type,
+				level,
+				status,
+				value,
+				unit,
+				source_id,
+				message,
+				created_at,
+				acknowledged_at,
+				acknowledged_by,
+				resolved_at
+			FROM alert_events
+			WHERE parameter_type = $1
+			  AND status IN ($2, $3)
+			ORDER BY created_at DESC, id DESC
+			LIMIT 1
+			`,
+			parameterType,
+			domain.AlertStatusActive,
+			domain.AlertStatusAcknowledged,
+		),
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return domain.AlertEvent{}, false, nil
+		}
+
+		return domain.AlertEvent{}, false, err
+	}
+
+	return alert, true, nil
+}
+
+// UpdateOpen updates an existing open alert without creating a duplicate.
+func (r *PostgresAlertRepository) UpdateOpen(
+	ctx context.Context,
+	alert domain.AlertEvent,
+) (domain.AlertEvent, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	updatedAlert, err := scanAlertRow(
+		r.pool.QueryRow(
+			ctx,
+			`
+			UPDATE alert_events
+			SET
+				level = $2,
+				value = $3,
+				unit = $4,
+				source_id = $5,
+				message = $6
+			WHERE id = $1
+			  AND status IN ($7, $8)
+			RETURNING
+				id,
+				parameter_type,
+				level,
+				status,
+				value,
+				unit,
+				source_id,
+				message,
+				created_at,
+				acknowledged_at,
+				acknowledged_by,
+				resolved_at
+			`,
+			alert.ID,
+			alert.Level,
+			alert.Value,
+			alert.Unit,
+			alert.SourceID,
+			alert.Message,
+			domain.AlertStatusActive,
+			domain.AlertStatusAcknowledged,
+		),
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return domain.AlertEvent{}, false, nil
+		}
+
+		return domain.AlertEvent{}, false, err
+	}
+
+	return updatedAlert, true, nil
+}
+
+// ResolveOpenByParameter resolves all open alerts for the given parameter.
+func (r *PostgresAlertRepository) ResolveOpenByParameter(
+	ctx context.Context,
+	parameterType domain.ParameterType,
+) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	commandTag, err := r.pool.Exec(
+		ctx,
+		`
+		UPDATE alert_events
+		SET
+			status = $2,
+			resolved_at = now()
+		WHERE parameter_type = $1
+		  AND status IN ($3, $4)
+		`,
+		parameterType,
+		domain.AlertStatusResolved,
+		domain.AlertStatusActive,
+		domain.AlertStatusAcknowledged,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return commandTag.RowsAffected(), nil
 }
 
 // Acknowledge marks an alert event as acknowledged.

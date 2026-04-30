@@ -35,6 +35,8 @@ type MQTTConfig struct {
 	TelemetryTopic string        `env:"MQTT_TELEMETRY_TOPIC" env-default:"extrusion/telemetry/readings"`
 	QoS            int           `env:"MQTT_QOS" env-default:"1"`
 	ConnectTimeout time.Duration `env:"MQTT_CONNECT_TIMEOUT" env-default:"5s"`
+	WorkerCount    int           `env:"MQTT_WORKER_COUNT" env-default:"4"`
+	QueueSize      int           `env:"MQTT_QUEUE_SIZE" env-default:"256"`
 }
 
 // Load reads configuration from .env and environment variables.

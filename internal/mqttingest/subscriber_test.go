@@ -6,41 +6,26 @@ import (
 	"extrusion-quality-system/internal/config"
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/ingestion"
-	"extrusion-quality-system/internal/storage"
 	"io"
 	"log/slog"
 	"testing"
 	"time"
 )
 
-func TestSubscriberHandlePayload(t *testing.T) {
-	ctx := context.Background()
+type fakeTelemetrySink struct {
+	inputs []ingestion.TelemetryInput
+}
 
+func (s *fakeTelemetrySink) Submit(_ context.Context, input ingestion.TelemetryInput) error {
+	s.inputs = append(s.inputs, input)
+	return nil
+}
+
+func TestSubscriberHandlePayloadSubmitsTelemetry(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	telemetryRepository := storage.NewMemoryTelemetryRepository()
-	alertRepository := storage.NewMemoryAlertRepository()
-	qualityRepository := storage.NewMemoryQualityRepository()
+	sink := &fakeTelemetrySink{}
 
-	setpoints := map[domain.ParameterType]domain.Setpoint{
-		domain.ParameterPressure: {
-			ParameterType: domain.ParameterPressure,
-			Unit:          domain.UnitBar,
-			WarningMin:    30,
-			NormalMin:     40,
-			NormalMax:     75,
-			WarningMax:    90,
-		},
-	}
-
-	service := ingestion.NewService(
-		logger,
-		telemetryRepository,
-		alertRepository,
-		qualityRepository,
-		setpoints,
-	)
-
-	subscriber := NewSubscriber(logger, config.MQTTConfig{}, service)
+	subscriber := NewSubscriber(logger, config.MQTTConfig{}, sink)
 
 	payload, err := json.Marshal(ingestion.TelemetryInput{
 		ParameterType: domain.ParameterPressure,
@@ -53,44 +38,24 @@ func TestSubscriberHandlePayload(t *testing.T) {
 		t.Fatalf("marshal payload: %v", err)
 	}
 
-	if err := subscriber.handlePayload(ctx, payload); err != nil {
+	if err := subscriber.handlePayload(context.Background(), payload); err != nil {
 		t.Fatalf("handle payload: %v", err)
 	}
 
-	readings, err := telemetryRepository.All(ctx)
-	if err != nil {
-		t.Fatalf("load readings: %v", err)
+	if len(sink.inputs) != 1 {
+		t.Fatalf("expected 1 submitted input, got %d", len(sink.inputs))
 	}
 
-	if len(readings) != 1 {
-		t.Fatalf("expected 1 reading, got %d", len(readings))
-	}
-
-	alerts, err := alertRepository.All(ctx)
-	if err != nil {
-		t.Fatalf("load alerts: %v", err)
-	}
-
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alerts))
-	}
-
-	if alerts[0].Level != domain.AlertLevelWarning {
-		t.Fatalf("expected warning alert, got %q", alerts[0].Level)
+	if sink.inputs[0].ParameterType != domain.ParameterPressure {
+		t.Fatalf("expected parameter %q, got %q", domain.ParameterPressure, sink.inputs[0].ParameterType)
 	}
 }
 
 func TestSubscriberHandleInvalidPayload(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	service := ingestion.NewService(
-		logger,
-		storage.NewMemoryTelemetryRepository(),
-		storage.NewMemoryAlertRepository(),
-		storage.NewMemoryQualityRepository(),
-		nil,
-	)
+	sink := &fakeTelemetrySink{}
 
-	subscriber := NewSubscriber(logger, config.MQTTConfig{}, service)
+	subscriber := NewSubscriber(logger, config.MQTTConfig{}, sink)
 
 	err := subscriber.handlePayload(context.Background(), []byte(`{`))
 	if err == nil {

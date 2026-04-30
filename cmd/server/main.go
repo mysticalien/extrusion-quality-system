@@ -92,10 +92,21 @@ func main() {
 		"enabled", cfg.MQTT.Enabled,
 		"brokerUrl", cfg.MQTT.BrokerURL,
 		"topic", cfg.MQTT.TelemetryTopic,
+		"workers", cfg.MQTT.WorkerCount,
+		"queueSize", cfg.MQTT.QueueSize,
 	)
 
 	if cfg.MQTT.Enabled {
-		mqttSubscriber := mqttingest.NewSubscriber(logger, cfg.MQTT, ingestionService)
+		asyncProcessor := ingestion.NewAsyncProcessor(
+			logger,
+			ingestionService,
+			cfg.MQTT.WorkerCount,
+			cfg.MQTT.QueueSize,
+		)
+
+		asyncProcessor.Start(context.Background())
+
+		mqttSubscriber := mqttingest.NewSubscriber(logger, cfg.MQTT, asyncProcessor)
 
 		go func() {
 			if err := mqttSubscriber.Start(context.Background()); err != nil {

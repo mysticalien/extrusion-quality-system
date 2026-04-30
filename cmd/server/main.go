@@ -5,6 +5,8 @@ import (
 	"extrusion-quality-system/internal/config"
 	"extrusion-quality-system/internal/domain"
 	httphandler "extrusion-quality-system/internal/http"
+	"extrusion-quality-system/internal/ingestion"
+	"extrusion-quality-system/internal/mqttingest"
 	"extrusion-quality-system/internal/storage"
 	"fmt"
 	"log/slog"
@@ -67,7 +69,7 @@ func main() {
 	qualityRepository := storage.NewPostgresQualityRepository(pool)
 	setpoints := defaultSetpoints()
 
-	telemetryHandler := httphandler.NewTelemetryHandler(
+	ingestionService := ingestion.NewService(
 		logger,
 		telemetryRepository,
 		alertRepository,
@@ -75,8 +77,32 @@ func main() {
 		setpoints,
 	)
 
+	telemetryHandler := httphandler.NewTelemetryHandlerWithService(
+		logger,
+		ingestionService,
+		telemetryRepository,
+		setpoints,
+	)
+
 	eventHandler := httphandler.NewEventHandler(logger, alertRepository)
 	qualityHandler := httphandler.NewQualityHandler(logger, qualityRepository)
+
+	logger.Info(
+		"mqtt config loaded",
+		"enabled", cfg.MQTT.Enabled,
+		"brokerUrl", cfg.MQTT.BrokerURL,
+		"topic", cfg.MQTT.TelemetryTopic,
+	)
+
+	if cfg.MQTT.Enabled {
+		mqttSubscriber := mqttingest.NewSubscriber(logger, cfg.MQTT, ingestionService)
+
+		go func() {
+			if err := mqttSubscriber.Start(context.Background()); err != nil {
+				logger.Error("mqtt subscriber stopped with error", "error", err)
+			}
+		}()
+	}
 
 	mux := nethttp.NewServeMux()
 
@@ -93,7 +119,7 @@ func main() {
 
 	mux.HandleFunc("/api/quality/latest", qualityHandler.Latest)
 	mux.HandleFunc("/api/quality/history", qualityHandler.History)
-	
+
 	server := &nethttp.Server{
 		Addr:              cfg.Server.Addr,
 		Handler:           mux,

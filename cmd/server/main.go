@@ -79,13 +79,21 @@ func main() {
 	qualityHandler := httphandler.NewQualityHandler(logger, qualityRepository)
 
 	mux := nethttp.NewServeMux()
+
 	mux.HandleFunc("/", homeHandler)
 	mux.HandleFunc("/health", healthHandler)
-	mux.HandleFunc("/api/telemetry", telemetryHandler.Create)
-	mux.HandleFunc("/api/events", eventHandler.List)
-	mux.HandleFunc("/api/events/", eventHandler.Action)
-	mux.HandleFunc("/api/quality/latest", qualityHandler.Latest)
 
+	mux.HandleFunc("/api/telemetry", telemetryHandler.Create)
+	mux.HandleFunc("/api/telemetry/latest", telemetryHandler.Latest)
+	mux.HandleFunc("/api/telemetry/history", telemetryHandler.History)
+
+	mux.HandleFunc("/api/events", eventHandler.List)
+	mux.HandleFunc("/api/events/active", eventHandler.Active)
+	mux.HandleFunc("/api/events/", eventHandler.Action)
+
+	mux.HandleFunc("/api/quality/latest", qualityHandler.Latest)
+	mux.HandleFunc("/api/quality/history", qualityHandler.History)
+	
 	server := &nethttp.Server{
 		Addr:              cfg.Server.Addr,
 		Handler:           mux,

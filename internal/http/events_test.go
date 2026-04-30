@@ -232,3 +232,111 @@ func TestEventHandlerActionMethodNotAllowed(t *testing.T) {
 		t.Fatalf("expected Allow header %q, got %q", nethttp.MethodPost, rec.Header().Get("Allow"))
 	}
 }
+
+func TestEventHandlerActive(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	alertRepository := storage.NewMemoryAlertRepository()
+	handler := NewEventHandler(logger, alertRepository)
+
+	activeAlert, err := alertRepository.Create(ctx, domain.AlertEvent{
+		ParameterType: domain.ParameterPressure,
+		Level:         domain.AlertLevelWarning,
+		Status:        domain.AlertStatusActive,
+		Value:         82.5,
+		Unit:          domain.UnitBar,
+		SourceID:      domain.SourceID("simulator"),
+		Message:       "pressure warning",
+		CreatedAt:     time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create active alert: %v", err)
+	}
+
+	acknowledgedAlert, err := alertRepository.Create(ctx, domain.AlertEvent{
+		ParameterType: domain.ParameterPressure,
+		Level:         domain.AlertLevelCritical,
+		Status:        domain.AlertStatusAcknowledged,
+		Value:         95,
+		Unit:          domain.UnitBar,
+		SourceID:      domain.SourceID("simulator"),
+		Message:       "pressure critical",
+		CreatedAt:     time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create acknowledged alert: %v", err)
+	}
+
+	_, err = alertRepository.Create(ctx, domain.AlertEvent{
+		ParameterType: domain.ParameterPressure,
+		Level:         domain.AlertLevelWarning,
+		Status:        domain.AlertStatusResolved,
+		Value:         90,
+		Unit:          domain.UnitBar,
+		SourceID:      domain.SourceID("simulator"),
+		Message:       "resolved pressure warning",
+		CreatedAt:     time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create resolved alert: %v", err)
+	}
+
+	req := httptest.NewRequest(nethttp.MethodGet, "/api/events/active", nil)
+	rec := httptest.NewRecorder()
+
+	handler.Active(rec, req)
+
+	if rec.Code != nethttp.StatusOK {
+		t.Fatalf("expected status %d, got %d, body: %s", nethttp.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response []domain.AlertEvent
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if len(response) != 2 {
+		t.Fatalf("expected 2 active alerts, got %d", len(response))
+	}
+
+	foundActive := false
+	foundAcknowledged := false
+
+	for _, alert := range response {
+		switch alert.ID {
+		case activeAlert.ID:
+			foundActive = true
+		case acknowledgedAlert.ID:
+			foundAcknowledged = true
+		default:
+			t.Fatalf("unexpected alert id %d in active response", alert.ID)
+		}
+	}
+
+	if !foundActive {
+		t.Fatalf("expected active alert in response")
+	}
+
+	if !foundAcknowledged {
+		t.Fatalf("expected acknowledged alert in response")
+	}
+}
+
+func TestEventHandlerActiveMethodNotAllowed(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	alertRepository := storage.NewMemoryAlertRepository()
+	handler := NewEventHandler(logger, alertRepository)
+
+	req := httptest.NewRequest(nethttp.MethodPost, "/api/events/active", nil)
+	rec := httptest.NewRecorder()
+
+	handler.Active(rec, req)
+
+	if rec.Code != nethttp.StatusMethodNotAllowed {
+		t.Fatalf("expected status %d, got %d", nethttp.StatusMethodNotAllowed, rec.Code)
+	}
+
+	if rec.Header().Get("Allow") != nethttp.MethodGet {
+		t.Fatalf("expected Allow header %q, got %q", nethttp.MethodGet, rec.Header().Get("Allow"))
+	}
+}

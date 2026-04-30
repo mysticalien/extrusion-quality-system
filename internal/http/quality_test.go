@@ -166,3 +166,206 @@ func TestQualityHandlerLatestInvalidRequests(t *testing.T) {
 		})
 	}
 }
+
+func TestQualityHandlerHistory(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	qualityRepository := storage.NewMemoryQualityRepository()
+	handler := NewQualityHandler(logger, qualityRepository)
+
+	firstTime := time.Date(2026, 4, 29, 18, 0, 0, 0, time.UTC)
+	secondTime := time.Date(2026, 4, 29, 18, 5, 0, 0, time.UTC)
+	thirdTime := time.Date(2026, 4, 29, 18, 10, 0, 0, time.UTC)
+
+	_, err := qualityRepository.Save(ctx, domain.QualityIndex{
+		Value:            100,
+		State:            domain.QualityStateStable,
+		ParameterPenalty: 0,
+		AnomalyPenalty:   0,
+		CalculatedAt:     firstTime,
+	})
+	if err != nil {
+		t.Fatalf("save first quality index: %v", err)
+	}
+
+	expectedIndex, err := qualityRepository.Save(ctx, domain.QualityIndex{
+		Value:            85,
+		State:            domain.QualityStateStable,
+		ParameterPenalty: 15,
+		AnomalyPenalty:   0,
+		CalculatedAt:     secondTime,
+	})
+	if err != nil {
+		t.Fatalf("save second quality index: %v", err)
+	}
+
+	_, err = qualityRepository.Save(ctx, domain.QualityIndex{
+		Value:            55,
+		State:            domain.QualityStateUnstable,
+		ParameterPenalty: 45,
+		AnomalyPenalty:   0,
+		CalculatedAt:     thirdTime,
+	})
+	if err != nil {
+		t.Fatalf("save third quality index: %v", err)
+	}
+
+	req := httptest.NewRequest(
+		nethttp.MethodGet,
+		"/api/quality/history?from=2026-04-29T18:05:00Z&to=2026-04-29T18:05:00Z&limit=10",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+
+	handler.History(rec, req)
+
+	if rec.Code != nethttp.StatusOK {
+		t.Fatalf("expected status %d, got %d, body: %s", nethttp.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response []domain.QualityIndex
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if len(response) != 1 {
+		t.Fatalf("expected 1 quality index, got %d", len(response))
+	}
+
+	if response[0].ID != expectedIndex.ID {
+		t.Fatalf("expected quality index id %d, got %d", expectedIndex.ID, response[0].ID)
+	}
+
+	if response[0].Value != expectedIndex.Value {
+		t.Fatalf("expected value %.2f, got %.2f", expectedIndex.Value, response[0].Value)
+	}
+}
+
+func TestQualityHandlerHistoryLimit(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	qualityRepository := storage.NewMemoryQualityRepository()
+	handler := NewQualityHandler(logger, qualityRepository)
+
+	firstTime := time.Date(2026, 4, 29, 18, 0, 0, 0, time.UTC)
+	secondTime := time.Date(2026, 4, 29, 18, 5, 0, 0, time.UTC)
+
+	_, err := qualityRepository.Save(ctx, domain.QualityIndex{
+		Value:            100,
+		State:            domain.QualityStateStable,
+		ParameterPenalty: 0,
+		AnomalyPenalty:   0,
+		CalculatedAt:     firstTime,
+	})
+	if err != nil {
+		t.Fatalf("save first quality index: %v", err)
+	}
+
+	_, err = qualityRepository.Save(ctx, domain.QualityIndex{
+		Value:            85,
+		State:            domain.QualityStateStable,
+		ParameterPenalty: 15,
+		AnomalyPenalty:   0,
+		CalculatedAt:     secondTime,
+	})
+	if err != nil {
+		t.Fatalf("save second quality index: %v", err)
+	}
+
+	req := httptest.NewRequest(nethttp.MethodGet, "/api/quality/history?limit=1", nil)
+	rec := httptest.NewRecorder()
+
+	handler.History(rec, req)
+
+	if rec.Code != nethttp.StatusOK {
+		t.Fatalf("expected status %d, got %d, body: %s", nethttp.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response []domain.QualityIndex
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if len(response) != 1 {
+		t.Fatalf("expected 1 quality index, got %d", len(response))
+	}
+}
+
+func TestQualityHandlerHistoryInvalidRequests(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		path           string
+		expectedStatus int
+		expectedError  string
+	}{
+		{
+			name:           "method not allowed",
+			method:         nethttp.MethodPost,
+			path:           "/api/quality/history",
+			expectedStatus: nethttp.StatusMethodNotAllowed,
+			expectedError:  "method not allowed",
+		},
+		{
+			name:           "invalid from",
+			method:         nethttp.MethodGet,
+			path:           "/api/quality/history?from=bad",
+			expectedStatus: nethttp.StatusBadRequest,
+			expectedError:  "from must be RFC3339 datetime",
+		},
+		{
+			name:           "invalid to",
+			method:         nethttp.MethodGet,
+			path:           "/api/quality/history?to=bad",
+			expectedStatus: nethttp.StatusBadRequest,
+			expectedError:  "to must be RFC3339 datetime",
+		},
+		{
+			name:           "from after to",
+			method:         nethttp.MethodGet,
+			path:           "/api/quality/history?from=2026-04-29T18:10:00Z&to=2026-04-29T18:00:00Z",
+			expectedStatus: nethttp.StatusBadRequest,
+			expectedError:  "from must be before or equal to to",
+		},
+		{
+			name:           "invalid limit",
+			method:         nethttp.MethodGet,
+			path:           "/api/quality/history?limit=bad",
+			expectedStatus: nethttp.StatusBadRequest,
+			expectedError:  "limit must be integer",
+		},
+		{
+			name:           "negative limit",
+			method:         nethttp.MethodGet,
+			path:           "/api/quality/history?limit=-1",
+			expectedStatus: nethttp.StatusBadRequest,
+			expectedError:  "limit must be positive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			qualityRepository := storage.NewMemoryQualityRepository()
+			handler := NewQualityHandler(logger, qualityRepository)
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+
+			handler.History(rec, req)
+
+			if rec.Code != tt.expectedStatus {
+				t.Fatalf("expected status %d, got %d, body: %s", tt.expectedStatus, rec.Code, rec.Body.String())
+			}
+
+			var response errorResponse
+			if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+
+			if response.Error != tt.expectedError {
+				t.Fatalf("expected error %q, got %q", tt.expectedError, response.Error)
+			}
+		})
+	}
+}

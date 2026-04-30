@@ -128,3 +128,26 @@ func parseEventActionPath(path string) (domain.AlertID, string, bool) {
 
 	return domain.AlertID(id), action, true
 }
+
+// Active returns active and acknowledged alert events.
+func (h *EventHandler) Active(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if r.URL.Path != "/api/events/active" {
+		nethttp.NotFound(w, r)
+		return
+	}
+
+	if r.Method != nethttp.MethodGet {
+		w.Header().Set("Allow", nethttp.MethodGet)
+		writeError(w, nethttp.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	events, err := h.alertRepository.Active(r.Context())
+	if err != nil {
+		h.logger.Error("load active alert events failed", "error", err)
+		writeError(w, nethttp.StatusInternalServerError, "failed to load active alert events")
+		return
+	}
+
+	writeJSON(w, nethttp.StatusOK, events)
+}

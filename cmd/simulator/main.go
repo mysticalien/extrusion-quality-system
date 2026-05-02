@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,10 +8,8 @@ import (
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/ingestion"
 	"fmt"
-	"io"
 	"log/slog"
 	"math/rand"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -29,13 +26,6 @@ const (
 	SimulationModeWarning  SimulationMode = "warning"
 	SimulationModeCritical SimulationMode = "critical"
 	SimulationModeAnomaly  SimulationMode = "anomaly"
-)
-
-type Transport string
-
-const (
-	TransportHTTP Transport = "http"
-	TransportMQTT Transport = "mqtt"
 )
 
 type telemetrySender interface {
@@ -67,13 +57,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	transport, err := parseTransport(cfg.Transport)
-	if err != nil {
-		logger.Error("invalid simulator transport", "error", err)
-		os.Exit(1)
-	}
-
-	sender, err := newSender(cfg, transport)
+	sender, err := newMQTTSender(cfg)
 	if err != nil {
 		logger.Error("create simulator sender failed", "error", err)
 		os.Exit(1)
@@ -93,7 +77,6 @@ func main() {
 
 	logger.Info(
 		"starting telemetry simulator",
-		"transport", transport,
 		"mode", mode,
 		"period", cfg.Period.String(),
 		"sourceId", cfg.SourceID,
@@ -118,28 +101,6 @@ func parseMode(rawMode string) (SimulationMode, error) {
 		return mode, nil
 	default:
 		return "", fmt.Errorf("unknown simulator mode %q", rawMode)
-	}
-}
-
-func parseTransport(rawTransport string) (Transport, error) {
-	transport := Transport(strings.ToLower(strings.TrimSpace(rawTransport)))
-
-	switch transport {
-	case TransportHTTP, TransportMQTT:
-		return transport, nil
-	default:
-		return "", fmt.Errorf("unknown simulator transport %q", rawTransport)
-	}
-}
-
-func newSender(cfg config.SimulatorConfig, transport Transport) (telemetrySender, error) {
-	switch transport {
-	case TransportMQTT:
-		return newMQTTSender(cfg)
-	case TransportHTTP:
-		return newHTTPSender(cfg), nil
-	default:
-		return nil, fmt.Errorf("unsupported transport %q", transport)
 	}
 }
 
@@ -297,54 +258,6 @@ func clamp(value float64, minValue float64, maxValue float64) float64 {
 func round2(value float64) float64 {
 	return float64(int(value*100)) / 100
 }
-
-type httpSender struct {
-	client     *http.Client
-	backendURL string
-}
-
-func newHTTPSender(cfg config.SimulatorConfig) *httpSender {
-	return &httpSender{
-		client: &http.Client{
-			Timeout: cfg.RequestTimeout,
-		},
-		backendURL: strings.TrimRight(cfg.BackendURL, "/"),
-	}
-}
-
-func (s *httpSender) Send(ctx context.Context, reading ingestion.TelemetryInput) error {
-	body, err := json.Marshal(reading)
-	if err != nil {
-		return fmt.Errorf("marshal telemetry reading: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		s.backendURL+"/api/telemetry",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return fmt.Errorf("create telemetry request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("send telemetry request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("backend returned status %d: %s", resp.StatusCode, string(responseBody))
-	}
-
-	return nil
-}
-
-func (s *httpSender) Close() {}
 
 type mqttSender struct {
 	client paho.Client

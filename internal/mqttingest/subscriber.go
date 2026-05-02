@@ -2,113 +2,129 @@ package mqttingest
 
 import (
 	"context"
-	"encoding/json"
-	"extrusion-quality-system/internal/config"
-	"extrusion-quality-system/internal/ingestion"
 	"fmt"
 	"log/slog"
 	"time"
 
-	paho "github.com/eclipse/paho.mqtt.golang"
+	"extrusion-quality-system/internal/config"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-// TelemetrySink accepts telemetry messages for further processing.
-type TelemetrySink interface {
-	Submit(ctx context.Context, input ingestion.TelemetryInput) error
+type TelemetryPublisher interface {
+	PublishTelemetry(ctx context.Context, key string, payload []byte) error
 }
 
-// Subscriber receives telemetry readings from MQTT broker.
 type Subscriber struct {
-	logger *slog.Logger
-	cfg    config.MQTTConfig
-	sink   TelemetrySink
+	logger    *slog.Logger
+	cfg       config.MQTTConfig
+	publisher TelemetryPublisher
 }
 
-// NewSubscriber creates MQTT telemetry subscriber.
 func NewSubscriber(
 	logger *slog.Logger,
 	cfg config.MQTTConfig,
-	sink TelemetrySink,
+	publisher TelemetryPublisher,
 ) *Subscriber {
 	return &Subscriber{
-		logger: logger,
-		cfg:    cfg,
-		sink:   sink,
+		logger:    logger,
+		cfg:       cfg,
+		publisher: publisher,
 	}
 }
 
-// Start connects to MQTT broker and subscribes to telemetry topic.
 func (s *Subscriber) Start(ctx context.Context) error {
-	options := paho.NewClientOptions().
-		AddBroker(s.cfg.BrokerURL).
-		SetClientID(s.cfg.ClientID).
-		SetCleanSession(true).
-		SetAutoReconnect(true).
-		SetConnectRetry(true).
-		SetConnectTimeout(s.cfg.ConnectTimeout)
+	if s.publisher == nil {
+		return fmt.Errorf("mqtt telemetry publisher is not configured")
+	}
 
-	client := paho.NewClient(options)
+	opts := mqtt.NewClientOptions()
+	opts.AddBroker(s.cfg.BrokerURL)
+	opts.SetClientID(s.cfg.ClientID)
+	opts.SetConnectTimeout(s.cfg.ConnectTimeout)
+	opts.SetAutoReconnect(true)
+	opts.SetConnectRetry(true)
+	opts.SetConnectRetryInterval(2 * time.Second)
 
-	connectToken := client.Connect()
-	if !connectToken.WaitTimeout(s.cfg.ConnectTimeout) {
+	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
+		s.logger.Error("mqtt connection lost", "error", err)
+	})
+
+	opts.SetOnConnectHandler(func(client mqtt.Client) {
+		s.logger.Info(
+			"mqtt connected",
+			"brokerUrl", s.cfg.BrokerURL,
+			"topic", s.cfg.TelemetryTopic,
+		)
+
+		token := client.Subscribe(
+			s.cfg.TelemetryTopic,
+			s.cfg.QoS,
+			s.handleMessage,
+		)
+
+		if !token.WaitTimeout(s.cfg.ConnectTimeout) {
+			s.logger.Error(
+				"mqtt subscribe timeout",
+				"topic", s.cfg.TelemetryTopic,
+				"timeout", s.cfg.ConnectTimeout,
+			)
+			return
+		}
+
+		if err := token.Error(); err != nil {
+			s.logger.Error(
+				"mqtt subscribe failed",
+				"topic", s.cfg.TelemetryTopic,
+				"error", err,
+			)
+			return
+		}
+
+		s.logger.Info(
+			"mqtt subscribed",
+			"topic", s.cfg.TelemetryTopic,
+			"qos", s.cfg.QoS,
+		)
+	})
+
+	client := mqtt.NewClient(opts)
+
+	token := client.Connect()
+	if !token.WaitTimeout(s.cfg.ConnectTimeout) {
 		return fmt.Errorf("mqtt connect timeout after %s", s.cfg.ConnectTimeout)
 	}
 
-	if err := connectToken.Error(); err != nil {
-		return fmt.Errorf("mqtt connect: %w", err)
+	if err := token.Error(); err != nil {
+		return fmt.Errorf("connect to mqtt broker: %w", err)
 	}
-
-	s.logger.Info(
-		"connected to mqtt broker",
-		"brokerUrl", s.cfg.BrokerURL,
-		"topic", s.cfg.TelemetryTopic,
-		"clientId", s.cfg.ClientID,
-	)
-
-	subscribeToken := client.Subscribe(
-		s.cfg.TelemetryTopic,
-		byte(s.cfg.QoS),
-		func(_ paho.Client, message paho.Message) {
-			if err := s.handlePayload(context.Background(), message.Payload()); err != nil {
-				s.logger.Error(
-					"enqueue mqtt telemetry message failed",
-					"topic", message.Topic(),
-					"error", err,
-				)
-			}
-		},
-	)
-
-	if !subscribeToken.WaitTimeout(5 * time.Second) {
-		client.Disconnect(250)
-		return fmt.Errorf("mqtt subscribe timeout")
-	}
-
-	if err := subscribeToken.Error(); err != nil {
-		client.Disconnect(250)
-		return fmt.Errorf("mqtt subscribe: %w", err)
-	}
-
-	s.logger.Info("subscribed to mqtt topic", "topic", s.cfg.TelemetryTopic)
 
 	<-ctx.Done()
 
-	client.Unsubscribe(s.cfg.TelemetryTopic).WaitTimeout(2 * time.Second)
 	client.Disconnect(250)
 
 	return nil
 }
 
-func (s *Subscriber) handlePayload(ctx context.Context, payload []byte) error {
-	var input ingestion.TelemetryInput
+func (s *Subscriber) handleMessage(_ mqtt.Client, message mqtt.Message) {
+	payload := append([]byte(nil), message.Payload()...)
 
-	if err := json.Unmarshal(payload, &input); err != nil {
-		return fmt.Errorf("decode mqtt telemetry payload: %w", err)
+	messageCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ConnectTimeout)
+	defer cancel()
+
+	if err := s.publisher.PublishTelemetry(messageCtx, message.Topic(), payload); err != nil {
+		s.logger.Error(
+			"publish mqtt telemetry to kafka failed",
+			"mqttTopic", message.Topic(),
+			"payloadSize", len(payload),
+			"error", err,
+		)
+		return
 	}
 
-	if err := s.sink.Submit(ctx, input); err != nil {
-		return fmt.Errorf("submit mqtt telemetry payload: %w", err)
-	}
-
-	return nil
+	s.logger.Debug(
+		"mqtt telemetry forwarded to kafka",
+		"mqttTopic", message.Topic(),
+		"payloadSize", len(payload),
+	)
 }

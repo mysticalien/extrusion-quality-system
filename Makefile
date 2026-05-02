@@ -123,3 +123,39 @@ db-reset:
 	docker compose down -v
 	docker compose up -d
 	goose -dir $(MIGRATIONS_DIR) postgres "$(DATABASE_URL)" up
+
+KAFKA_CONTAINER ?= extrusion_kafka
+KAFKA_TOPIC ?= extrusion.telemetry.raw
+
+# Для команд внутри Docker-сети / контейнера Kafka.
+KAFKA_CONTAINER_BOOTSTRAP ?= kafka:29092
+
+.PHONY: kafka-topics
+kafka-topics:
+	docker exec -it $(KAFKA_CONTAINER) /opt/kafka/bin/kafka-topics.sh \
+		--bootstrap-server $(KAFKA_CONTAINER_BOOTSTRAP) \
+		--list
+
+.PHONY: kafka-create-topic
+kafka-create-topic:
+	docker exec -it $(KAFKA_CONTAINER) /opt/kafka/bin/kafka-topics.sh \
+		--bootstrap-server $(KAFKA_CONTAINER_BOOTSTRAP) \
+		--create \
+		--if-not-exists \
+		--topic $(KAFKA_TOPIC) \
+		--partitions 3 \
+		--replication-factor 1
+
+.PHONY: kafka-consume
+kafka-consume:
+	docker exec -it $(KAFKA_CONTAINER) /opt/kafka/bin/kafka-console-consumer.sh \
+		--bootstrap-server $(KAFKA_CONTAINER_BOOTSTRAP) \
+		--topic $(KAFKA_TOPIC) \
+		--from-beginning
+
+.PHONY: kafka-describe-topic
+kafka-describe-topic:
+	docker exec -it $(KAFKA_CONTAINER) /opt/kafka/bin/kafka-topics.sh \
+		--bootstrap-server $(KAFKA_CONTAINER_BOOTSTRAP) \
+		--describe \
+		--topic $(KAFKA_TOPIC)

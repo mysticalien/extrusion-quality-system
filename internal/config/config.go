@@ -16,6 +16,17 @@ type Config struct {
 	MQTT      MQTTConfig
 	Simulator SimulatorConfig
 	Logging   LoggingConfig
+	Kafka     KafkaConfig
+}
+
+type KafkaConfig struct {
+	Enabled        bool          `env:"KAFKA_ENABLED" env-default:"false"`
+	Brokers        string        `env:"KAFKA_BROKERS" env-default:"localhost:9092"`
+	TelemetryTopic string        `env:"KAFKA_TELEMETRY_TOPIC" env-default:"extrusion.telemetry.raw"`
+	ConsumerGroup  string        `env:"KAFKA_CONSUMER_GROUP" env-default:"extrusion-quality-service"`
+	WriteTimeout   time.Duration `env:"KAFKA_WRITE_TIMEOUT" env-default:"10s"`
+	ReadTimeout    time.Duration `env:"KAFKA_READ_TIMEOUT" env-default:"10s"`
+	RetryDelay     time.Duration `env:"KAFKA_RETRY_DELAY" env-default:"2s"`
 }
 
 type LoggingConfig struct {
@@ -50,14 +61,11 @@ type MQTTConfig struct {
 }
 
 type SimulatorConfig struct {
-	Transport      string        `env:"SIMULATOR_TRANSPORT" env-default:"http"`
 	Mode           string        `env:"SIMULATOR_MODE" env-default:"http"`
 	Period         time.Duration `env:"SIMULATOR_INTERVAL" env-default:"2s"`
 	RequestTimeout time.Duration `env:"SIMULATOR_REQUEST_TIMEOUT" env-default:"10s"`
 
-	BackendURL string `env:"SIMULATOR_TARGET_URL" env-default:"http://localhost:8080/api/telemetry"`
-	SourceID   string `env:"SIMULATOR_SOURCE_ID" env-default:"http-simulator"`
-	AuthToken  string `env:"SIMULATOR_AUTH_TOKEN" env-default:""`
+	SourceID string `env:"SIMULATOR_SOURCE_ID" env-default:"http-simulator"`
 
 	MQTTBrokerURL string        `env:"SIMULATOR_MQTT_BROKER_URL" env-default:"tcp://localhost:1883"`
 	MQTTClientID  string        `env:"SIMULATOR_MQTT_CLIENT_ID" env-default:"extrusion-simulator"`
@@ -116,10 +124,6 @@ func applySimulatorEnvAliases(cfg *Config) {
 		}
 	}
 
-	if value := strings.TrimSpace(os.Getenv("SIMULATOR_BACKEND_URL")); value != "" {
-		cfg.Simulator.BackendURL = value
-	}
-
 	if value := strings.TrimSpace(os.Getenv("SIMULATOR_MQTT_BROKER")); value != "" {
 		cfg.Simulator.MQTTBrokerURL = value
 	}
@@ -166,16 +170,38 @@ func validate(cfg Config) error {
 		return fmt.Errorf("SIMULATOR_REQUEST_TIMEOUT must be positive")
 	}
 
-	if cfg.Simulator.Mode != "http" && cfg.Simulator.Mode != "mqtt" {
-		return fmt.Errorf("SIMULATOR_MODE must be http or mqtt")
-	}
-
 	if cfg.Simulator.MQTTQoS > 2 {
 		return fmt.Errorf("SIMULATOR_MQTT_QOS must be 0, 1 or 2")
 	}
 
 	if cfg.Simulator.MQTTTimeout <= 0 {
 		return fmt.Errorf("SIMULATOR_MQTT_TIMEOUT must be positive")
+	}
+
+	if cfg.Kafka.Enabled {
+		if len(cfg.Kafka.BrokerList()) == 0 {
+			return fmt.Errorf("KAFKA_BROKERS must not be empty when Kafka is enabled")
+		}
+
+		if cfg.Kafka.TelemetryTopic == "" {
+			return fmt.Errorf("KAFKA_TELEMETRY_TOPIC must not be empty when Kafka is enabled")
+		}
+
+		if cfg.Kafka.ConsumerGroup == "" {
+			return fmt.Errorf("KAFKA_CONSUMER_GROUP must not be empty when Kafka is enabled")
+		}
+
+		if cfg.Kafka.WriteTimeout <= 0 {
+			return fmt.Errorf("KAFKA_WRITE_TIMEOUT must be positive")
+		}
+
+		if cfg.Kafka.ReadTimeout <= 0 {
+			return fmt.Errorf("KAFKA_READ_TIMEOUT must be positive")
+		}
+
+		if cfg.Kafka.RetryDelay <= 0 {
+			return fmt.Errorf("KAFKA_RETRY_DELAY must be positive")
+		}
 	}
 
 	switch strings.ToLower(cfg.Logging.Level) {
@@ -186,4 +212,20 @@ func validate(cfg Config) error {
 	}
 
 	return nil
+}
+
+func (c KafkaConfig) BrokerList() []string {
+	rawBrokers := strings.Split(c.Brokers, ",")
+	brokers := make([]string, 0, len(rawBrokers))
+
+	for _, broker := range rawBrokers {
+		broker = strings.TrimSpace(broker)
+		if broker == "" {
+			continue
+		}
+
+		brokers = append(brokers, broker)
+	}
+
+	return brokers
 }

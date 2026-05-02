@@ -7,6 +7,7 @@ import (
 	"extrusion-quality-system/internal/domain"
 	httphandler "extrusion-quality-system/internal/http"
 	"extrusion-quality-system/internal/ingestion"
+	"extrusion-quality-system/internal/kafkaingest"
 	"extrusion-quality-system/internal/mqttingest"
 	"extrusion-quality-system/internal/storage"
 	"fmt"
@@ -65,7 +66,9 @@ func main() {
 		"serverAddr", cfg.Server.Addr,
 		"databaseConfigured", cfg.Database.URL != "",
 		"mqttEnabled", cfg.MQTT.Enabled,
+		"kafkaEnabled", cfg.Kafka.Enabled,
 		"mqttBrokerUrl", cfg.MQTT.BrokerURL,
+		"kafkaBrokers", cfg.Kafka.BrokerList(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -133,6 +136,42 @@ func main() {
 		ingestion.WithQualityWeightRepository(qualityWeightRepository),
 	)
 
+	var kafkaProducer *kafkaingest.Producer
+
+	if cfg.Kafka.Enabled {
+		kafkaProducer = kafkaingest.NewProducer(logger, cfg.Kafka)
+		defer func() {
+			if err := kafkaProducer.Close(); err != nil {
+				logger.Error("close kafka producer failed", "error", err)
+			}
+		}()
+
+		kafkaConsumer := kafkaingest.NewConsumer(
+			logger,
+			cfg.Kafka,
+			ingestionService,
+		)
+
+		defer func() {
+			if err := kafkaConsumer.Close(); err != nil {
+				logger.Error("close kafka consumer failed", "error", err)
+			}
+		}()
+
+		go func() {
+			if err := kafkaConsumer.Start(context.Background()); err != nil {
+				logger.Error("kafka consumer stopped with error", "error", err)
+			}
+		}()
+
+		logger.Info(
+			"kafka ingestion enabled",
+			"brokers", cfg.Kafka.BrokerList(),
+			"topic", cfg.Kafka.TelemetryTopic,
+			"consumerGroup", cfg.Kafka.ConsumerGroup,
+		)
+	}
+
 	telemetryHandler := httphandler.NewTelemetryHandlerWithService(
 		logger,
 		ingestionService,
@@ -152,27 +191,33 @@ func main() {
 		"enabled", cfg.MQTT.Enabled,
 		"brokerUrl", cfg.MQTT.BrokerURL,
 		"topic", cfg.MQTT.TelemetryTopic,
-		"workers", cfg.MQTT.WorkerCount,
-		"queueSize", cfg.MQTT.QueueSize,
+		"qos", cfg.MQTT.QoS,
 	)
 
 	if cfg.MQTT.Enabled {
-		asyncProcessor := ingestion.NewAsyncProcessor(
+		if !cfg.Kafka.Enabled {
+			logger.Error("mqtt ingestion requires kafka to be enabled")
+			os.Exit(1)
+		}
+
+		mqttSubscriber := mqttingest.NewSubscriber(
 			logger,
-			ingestionService,
-			cfg.MQTT.WorkerCount,
-			cfg.MQTT.QueueSize,
+			cfg.MQTT,
+			kafkaProducer,
 		)
-
-		asyncProcessor.Start(context.Background())
-
-		mqttSubscriber := mqttingest.NewSubscriber(logger, cfg.MQTT, asyncProcessor)
 
 		go func() {
 			if err := mqttSubscriber.Start(context.Background()); err != nil {
 				logger.Error("mqtt subscriber stopped with error", "error", err)
 			}
 		}()
+
+		logger.Info(
+			"mqtt to kafka bridge enabled",
+			"mqttBrokerUrl", cfg.MQTT.BrokerURL,
+			"mqttTopic", cfg.MQTT.TelemetryTopic,
+			"kafkaTopic", cfg.Kafka.TelemetryTopic,
+		)
 	}
 
 	mux := nethttp.NewServeMux()

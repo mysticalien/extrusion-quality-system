@@ -53,4 +53,9 @@ type QualityRepository interface {
 type SetpointRepository interface {
 	All(ctx context.Context) ([]domain.Setpoint, error)
 	GetByParameter(ctx context.Context, parameterType domain.ParameterType) (domain.Setpoint, bool, error)
+	Update(
+		ctx context.Context,
+		id int64,
+		update domain.SetpointUpdate,
+	) (domain.Setpoint, bool, error)
 }

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"extrusion-quality-system/internal/domain"
@@ -141,4 +142,71 @@ func scanSetpointRow(row setpointRowScanner) (domain.Setpoint, error) {
 	}
 
 	return setpoint, nil
+}
+
+func (r *PostgresSetpointRepository) Update(
+	ctx context.Context,
+	id int64,
+	update domain.SetpointUpdate,
+) (domain.Setpoint, bool, error) {
+	const query = `
+		UPDATE setpoints
+		SET
+			critical_min = $2,
+			warning_min = $3,
+			normal_min = $4,
+			normal_max = $5,
+			warning_max = $6,
+			critical_max = $7,
+			updated_at = now()
+		WHERE id = $1
+		RETURNING
+			id,
+			parameter_type,
+			unit,
+			critical_min,
+			warning_min,
+			normal_min,
+			normal_max,
+			warning_max,
+			critical_max,
+			created_at,
+			updated_at
+	`
+
+	var setpoint domain.Setpoint
+
+	err := r.pool.QueryRow(
+		ctx,
+		query,
+		id,
+		update.CriticalMin,
+		update.WarningMin,
+		update.NormalMin,
+		update.NormalMax,
+		update.WarningMax,
+		update.CriticalMax,
+	).Scan(
+		&setpoint.ID,
+		&setpoint.ParameterType,
+		&setpoint.Unit,
+		&setpoint.CriticalMin,
+		&setpoint.WarningMin,
+		&setpoint.NormalMin,
+		&setpoint.NormalMax,
+		&setpoint.WarningMax,
+		&setpoint.CriticalMax,
+		&setpoint.CreatedAt,
+		&setpoint.UpdatedAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Setpoint{}, false, nil
+	}
+
+	if err != nil {
+		return domain.Setpoint{}, false, err
+	}
+
+	return setpoint, true, nil
 }

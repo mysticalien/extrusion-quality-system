@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"extrusion-quality-system/internal/domain"
+	"time"
 )
 
 type MemorySetpointRepository struct {
@@ -46,4 +47,32 @@ func (r *MemorySetpointRepository) GetByParameter(
 	setpoint, found := r.setpoints[parameterType]
 
 	return setpoint, found, nil
+}
+
+func (r *MemorySetpointRepository) Update(
+	ctx context.Context,
+	id int64,
+	update domain.SetpointUpdate,
+) (domain.Setpoint, bool, error) {
+	_ = ctx
+
+	for parameterType, setpoint := range r.setpoints {
+		if int64(setpoint.ID) != id {
+			continue
+		}
+
+		setpoint.CriticalMin = update.CriticalMin
+		setpoint.WarningMin = update.WarningMin
+		setpoint.NormalMin = update.NormalMin
+		setpoint.NormalMax = update.NormalMax
+		setpoint.WarningMax = update.WarningMax
+		setpoint.CriticalMax = update.CriticalMax
+		setpoint.UpdatedAt = time.Now().UTC()
+
+		r.setpoints[parameterType] = setpoint
+
+		return setpoint, true, nil
+	}
+
+	return domain.Setpoint{}, false, nil
 }

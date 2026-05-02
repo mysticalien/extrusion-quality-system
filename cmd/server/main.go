@@ -134,6 +134,7 @@ func main() {
 	mux.HandleFunc("/api/quality/history", qualityHandler.History)
 
 	mux.HandleFunc("/api/setpoints", setpointHandler.List)
+	mux.HandleFunc("/api/setpoints/", setpointHandler.Update)
 
 	server := &nethttp.Server{
 		Addr:              cfg.Server.Addr,

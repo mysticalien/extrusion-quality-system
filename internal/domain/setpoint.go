@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // SetpointID identifies a setpoint configuration.
 type SetpointID int64
@@ -34,6 +37,15 @@ type Setpoint struct {
 	UpdatedBy *UserID `json:"updatedBy,omitempty"`
 }
 
+type SetpointUpdate struct {
+	CriticalMin float64 `json:"criticalMin"`
+	WarningMin  float64 `json:"warningMin"`
+	NormalMin   float64 `json:"normalMin"`
+	NormalMax   float64 `json:"normalMax"`
+	WarningMax  float64 `json:"warningMax"`
+	CriticalMax float64 `json:"criticalMax"`
+}
+
 func (s Setpoint) Evaluate(value float64) ParameterState {
 	if value < s.WarningMin || value > s.WarningMax {
 		return ParameterStateCritical
@@ -44,4 +56,28 @@ func (s Setpoint) Evaluate(value float64) ParameterState {
 	}
 
 	return ParameterStateNormal
+}
+
+func ValidateSetpointUpdate(update SetpointUpdate) error {
+	if update.CriticalMin > update.WarningMin {
+		return fmt.Errorf("criticalMin must be less than or equal to warningMin")
+	}
+
+	if update.WarningMin > update.NormalMin {
+		return fmt.Errorf("warningMin must be less than or equal to normalMin")
+	}
+
+	if update.NormalMin > update.NormalMax {
+		return fmt.Errorf("normalMin must be less than or equal to normalMax")
+	}
+
+	if update.NormalMax > update.WarningMax {
+		return fmt.Errorf("normalMax must be less than or equal to warningMax")
+	}
+
+	if update.WarningMax > update.CriticalMax {
+		return fmt.Errorf("warningMax must be less than or equal to criticalMax")
+	}
+
+	return nil
 }

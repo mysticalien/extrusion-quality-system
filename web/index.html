@@ -364,8 +364,117 @@
             <div class="empty">Select parameter and load history</div>
         </div>
     </section>
+    <section>
+        <h2>Настройка уставок</h2>
+
+        <select id="setpointSelect"></select>
+
+        <div>
+            <label>Critical min</label>
+            <input id="criticalMin" type="number" step="0.01">
+        </div>
+
+        <div>
+            <label>Warning min</label>
+            <input id="warningMin" type="number" step="0.01">
+        </div>
+
+        <div>
+            <label>Normal min</label>
+            <input id="normalMin" type="number" step="0.01">
+        </div>
+
+        <div>
+            <label>Normal max</label>
+            <input id="normalMax" type="number" step="0.01">
+        </div>
+
+        <div>
+            <label>Warning max</label>
+            <input id="warningMax" type="number" step="0.01">
+        </div>
+
+        <div>
+            <label>Critical max</label>
+            <input id="criticalMax" type="number" step="0.01">
+        </div>
+
+        <button id="saveSetpointButton">Сохранить уставку</button>
+
+        <pre id="setpointResult"></pre>
+    </section>
 </main>
 
 <script src="/static/app.js"></script>
+<script>
+    let setpoints = [];
+
+    async function loadSetpoints() {
+        const response = await fetch('/api/setpoints');
+        setpoints = await response.json();
+
+        const select = document.getElementById('setpointSelect');
+        select.innerHTML = '';
+
+        for (const setpoint of setpoints) {
+            const option = document.createElement('option');
+            option.value = setpoint.id;
+            option.textContent = `${setpoint.parameterType} (${setpoint.unit})`;
+            select.appendChild(option);
+        }
+
+        fillSetpointForm();
+    }
+
+    function fillSetpointForm() {
+        const selectedId = Number(document.getElementById('setpointSelect').value);
+        const setpoint = setpoints.find(item => item.id === selectedId);
+
+        if (!setpoint) {
+            return;
+        }
+
+        document.getElementById('criticalMin').value = setpoint.criticalMin;
+        document.getElementById('warningMin').value = setpoint.warningMin;
+        document.getElementById('normalMin').value = setpoint.normalMin;
+        document.getElementById('normalMax').value = setpoint.normalMax;
+        document.getElementById('warningMax').value = setpoint.warningMax;
+        document.getElementById('criticalMax').value = setpoint.criticalMax;
+    }
+
+    async function saveSetpoint() {
+        const selectedId = Number(document.getElementById('setpointSelect').value);
+
+        const payload = {
+            criticalMin: Number(document.getElementById('criticalMin').value),
+            warningMin: Number(document.getElementById('warningMin').value),
+            normalMin: Number(document.getElementById('normalMin').value),
+            normalMax: Number(document.getElementById('normalMax').value),
+            warningMax: Number(document.getElementById('warningMax').value),
+            criticalMax: Number(document.getElementById('criticalMax').value)
+        };
+
+        const response = await fetch(`/api/setpoints/${selectedId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        document.getElementById('setpointResult').textContent = JSON.stringify(result, null, 2);
+
+        if (response.ok) {
+            await loadSetpoints();
+        }
+    }
+
+    document.getElementById('setpointSelect').addEventListener('change', fillSetpointForm);
+    document.getElementById('saveSetpointButton').addEventListener('click', saveSetpoint);
+
+    loadSetpoints();
+</script>
 </body>
 </html>

@@ -82,3 +82,8 @@ type AnomalyRepository interface {
 		parameterType domain.ParameterType,
 	) (int64, error)
 }
+
+type UserRepository interface {
+	FindByUsername(ctx context.Context, username string) (domain.User, bool, error)
+	FindByID(ctx context.Context, id domain.UserID) (domain.User, bool, error)
+}

@@ -12,6 +12,12 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	MQTT     MQTTConfig
+	Auth     AuthConfig `env-prefix:"AUTH_"`
+}
+
+type AuthConfig struct {
+	TokenSecret string        `env:"TOKEN_SECRET" env-required:"true"`
+	TokenTTL    time.Duration `env:"TOKEN_TTL" env-default:"24h"`
 }
 
 // ServerConfig contains HTTP server settings.

@@ -11,6 +11,8 @@ const parameterNames = {
     outlet_temperature: "Outlet temperature"
 };
 
+const authTokenStorageKey = "authToken";
+
 let lastHistoryReadings = [];
 let historyIsLoading = false;
 
@@ -29,7 +31,20 @@ function hideError() {
 }
 
 async function fetchJSON(url, options = {}) {
-    const response = await fetch(url, options);
+    const token = localStorage.getItem(authTokenStorageKey);
+
+    const headers = {
+        ...(options.headers || {})
+    };
+
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, {
+        ...options,
+        headers
+    });
 
     if (!response.ok) {
         const text = await response.text();

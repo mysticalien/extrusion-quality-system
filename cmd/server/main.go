@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	authservice "extrusion-quality-system/internal/auth"
 	"extrusion-quality-system/internal/config"
 	"extrusion-quality-system/internal/domain"
 	httphandler "extrusion-quality-system/internal/http"
@@ -68,6 +69,24 @@ func main() {
 	setpointRepository := storage.NewPostgresSetpointRepository(pool)
 	anomalyRepository := storage.NewPostgresAnomalyRepository(pool)
 
+	userRepository := storage.NewPostgresUserRepository(pool)
+
+	tokenManager := authservice.NewTokenManager(
+		cfg.Auth.TokenSecret,
+		cfg.Auth.TokenTTL,
+	)
+
+	authHandler := httphandler.NewAuthHandler(
+		logger,
+		userRepository,
+		tokenManager,
+	)
+
+	requireAuth := httphandler.AuthMiddleware(logger, tokenManager)
+	protected := func(handler nethttp.HandlerFunc) nethttp.HandlerFunc {
+		return requireAuth(handler).ServeHTTP
+	}
+
 	ingestionService := ingestion.NewService(
 		logger,
 		telemetryRepository,
@@ -125,23 +144,24 @@ func main() {
 	mux.HandleFunc("/", homeHandler)
 	mux.HandleFunc("/health", healthHandler)
 
-	mux.HandleFunc("/api/telemetry", telemetryHandler.Create)
-	mux.HandleFunc("/api/telemetry/latest", telemetryHandler.Latest)
-	mux.HandleFunc("/api/telemetry/history", telemetryHandler.History)
+	mux.HandleFunc("/api/login", authHandler.Login)
+	mux.HandleFunc("/api/me", protected(authHandler.Me))
 
-	mux.HandleFunc("/api/events", eventHandler.List)
-	mux.HandleFunc("/api/events/active", eventHandler.Active)
-	mux.HandleFunc("/api/events/", eventHandler.Action)
+	mux.HandleFunc("/api/telemetry", protected(telemetryHandler.Create))
+	mux.HandleFunc("/api/telemetry/latest", protected(telemetryHandler.Latest))
+	mux.HandleFunc("/api/telemetry/history", protected(telemetryHandler.History))
 
-	mux.HandleFunc("/api/quality/latest", qualityHandler.Latest)
-	mux.HandleFunc("/api/quality/history", qualityHandler.History)
+	mux.HandleFunc("/api/events", protected(eventHandler.List))
+	mux.HandleFunc("/api/events/active", protected(eventHandler.Active))
+	mux.HandleFunc("/api/events/", protected(eventHandler.Action))
 
-	mux.HandleFunc("/api/setpoints", setpointHandler.List)
-	mux.HandleFunc("/api/setpoints/", setpointHandler.Update)
+	mux.HandleFunc("/api/quality/latest", protected(qualityHandler.Latest))
+	mux.HandleFunc("/api/quality/history", protected(qualityHandler.History))
 
-	mux.HandleFunc("/api/anomalies", anomalyHandler.List)
-	mux.HandleFunc("/api/anomalies/active", anomalyHandler.Active)
+	mux.HandleFunc("/api/setpoints", protected(setpointHandler.List))
 
+	mux.HandleFunc("/api/anomalies", protected(anomalyHandler.List))
+	mux.HandleFunc("/api/anomalies/active", protected(anomalyHandler.Active))
 	server := &nethttp.Server{
 		Addr:              cfg.Server.Addr,
 		Handler:           mux,

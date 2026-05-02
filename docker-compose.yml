@@ -10,6 +10,15 @@ services:
       - "${POSTGRES_PORT:-55432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   mqtt:
     image: eclipse-mosquitto:2
@@ -43,6 +52,110 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR:-1}
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: ${KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS:-0}
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "${KAFKA_AUTO_CREATE_TOPICS_ENABLE:-true}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1"
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+    container_name: extrusion_migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-extrusion_user}:${POSTGRES_PASSWORD:-extrusion_password}@postgres:5432/${POSTGRES_DB:-extrusion_quality}?sslmode=disable
+    command:
+      [
+        "sh",
+        "-c",
+        "goose -dir /app/migrations postgres \"$${DATABASE_URL}\" up"
+      ]
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+    container_name: ${BACKEND_CONTAINER_NAME:-extrusion_backend}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      SERVER_ADDR: ":8080"
+      SERVER_READ_TIMEOUT: ${SERVER_READ_TIMEOUT:-5s}
+      SERVER_WRITE_TIMEOUT: ${SERVER_WRITE_TIMEOUT:-10s}
+      SERVER_READ_HEADER_TIMEOUT: ${SERVER_READ_HEADER_TIMEOUT:-3s}
+
+      DATABASE_URL: postgres://${POSTGRES_USER:-extrusion_user}:${POSTGRES_PASSWORD:-extrusion_password}@postgres:5432/${POSTGRES_DB:-extrusion_quality}?sslmode=disable
+
+      JWT_SECRET: ${JWT_SECRET:-change-me-local-secret-for-development}
+      JWT_TOKEN_TTL: ${JWT_TOKEN_TTL:-24h}
+
+      MQTT_ENABLED: ${MQTT_ENABLED:-true}
+      MQTT_BROKER_URL: tcp://mqtt:1883
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-extrusion-backend}
+      MQTT_TELEMETRY_TOPIC: ${MQTT_TELEMETRY_TOPIC:-extrusion/telemetry/readings}
+      MQTT_CONNECT_TIMEOUT: ${MQTT_CONNECT_TIMEOUT:-10s}
+      MQTT_QOS: ${MQTT_QOS:-0}
+      MQTT_WORKER_COUNT: ${MQTT_WORKER_COUNT:-4}
+      MQTT_QUEUE_SIZE: ${MQTT_QUEUE_SIZE:-256}
+
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-true}
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_TELEMETRY_TOPIC: ${KAFKA_TELEMETRY_TOPIC:-extrusion.telemetry.raw}
+      KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-extrusion-quality-service}
+      KAFKA_WRITE_TIMEOUT: ${KAFKA_WRITE_TIMEOUT:-10s}
+      KAFKA_READ_TIMEOUT: ${KAFKA_READ_TIMEOUT:-10s}
+      KAFKA_RETRY_DELAY: ${KAFKA_RETRY_DELAY:-2s}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:8080/health >/dev/null 2>&1"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    command: ["/app/server"]
+
+  telemetry-simulator:
+    build:
+      context: .
+    container_name: ${SIMULATOR_CONTAINER_NAME:-extrusion_telemetry_simulator}
+    depends_on:
+      backend:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      SIMULATOR_INTERVAL: ${SIMULATOR_INTERVAL:-2s}
+      SIMULATOR_REQUEST_TIMEOUT: ${SIMULATOR_REQUEST_TIMEOUT:-10s}
+      SIMULATOR_SOURCE_ID: ${SIMULATOR_SOURCE_ID:-mqtt-simulator}
+
+      SIMULATOR_MQTT_BROKER_URL: tcp://mqtt:1883
+      SIMULATOR_MQTT_CLIENT_ID: ${SIMULATOR_MQTT_CLIENT_ID:-extrusion-simulator}
+      SIMULATOR_MQTT_TOPIC: ${SIMULATOR_MQTT_TOPIC:-extrusion/telemetry/readings}
+      SIMULATOR_MQTT_QOS: ${SIMULATOR_MQTT_QOS:-0}
+      SIMULATOR_MQTT_TIMEOUT: ${SIMULATOR_MQTT_TIMEOUT:-10s}
+    command: ["/app/simulator"]
 
 volumes:
   postgres_data:

@@ -1,0 +1,17 @@
+.git
+.idea
+.vscode
+
+.env
+*.log
+
+tmp
+dist
+bin
+out
+
+.DS_Store
+
+postgres_data
+mosquitto_data
+mosquitto_log

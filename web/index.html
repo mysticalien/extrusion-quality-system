@@ -27,6 +27,11 @@
             font-size: 28px;
         }
 
+        h3 {
+            margin: 20px 0 12px;
+            font-size: 17px;
+        }
+
         .subtitle {
             color: #667085;
             font-size: 14px;
@@ -108,14 +113,16 @@
         }
 
         .events-list,
-        .history-list {
+        .history-list,
+        .users-list {
             display: flex;
             flex-direction: column;
             gap: 12px;
         }
 
         .event-card,
-        .history-card {
+        .history-card,
+        .user-card {
             padding: 16px;
             border: 1px solid #e5e7eb;
             border-radius: 12px;
@@ -123,15 +130,19 @@
         }
 
         .event-header,
-        .history-header {
+        .history-header,
+        .user-header {
             display: flex;
             justify-content: space-between;
             gap: 12px;
             margin-bottom: 8px;
+            align-items: center;
+            flex-wrap: wrap;
         }
 
         .event-level,
-        .history-value {
+        .history-value,
+        .user-name {
             font-weight: 700;
         }
 
@@ -140,7 +151,8 @@
         }
 
         .event-status,
-        .history-time {
+        .history-time,
+        .user-status {
             font-size: 13px;
             color: #667085;
         }
@@ -151,18 +163,27 @@
         }
 
         .event-meta,
-        .history-meta {
+        .history-meta,
+        .user-meta {
             font-size: 12px;
             color: #667085;
             margin-bottom: 12px;
             line-height: 1.4;
         }
 
-        .history-controls {
+        .history-controls,
+        .user-controls {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 12px;
             margin-bottom: 16px;
+            align-items: end;
+        }
+
+        .user-actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
             align-items: end;
         }
 
@@ -220,6 +241,18 @@
             background: #9ca3af;
         }
 
+        .secondary-button {
+            background: #475467;
+        }
+
+        .danger-button {
+            background: #dc2626;
+        }
+
+        .success-button {
+            background: #16a34a;
+        }
+
         .empty {
             color: #667085;
             font-size: 14px;
@@ -271,6 +304,23 @@
             height: 260px;
             display: block;
         }
+
+        .user-panel-content {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            padding: 12px;
+            border-radius: 10px;
+            background: #f9fafb;
+            color: #1f2933;
+        }
     </style>
 </head>
 
@@ -282,7 +332,68 @@
 
 <div id="error" class="error"></div>
 
-<main class="layout">
+<section id="loginSection" class="section">
+    <h2>Вход в систему</h2>
+
+    <div class="history-controls">
+        <div class="control-group">
+            <label for="loginUsername">Username</label>
+            <input id="loginUsername" type="text" autocomplete="username" placeholder="Введите логин">
+        </div>
+
+        <div class="control-group">
+            <label for="loginPassword">Password</label>
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Введите пароль">
+        </div>
+
+        <div class="control-group">
+            <button id="loginButton" onclick="login()">Войти</button>
+        </div>
+    </div>
+
+    <div class="empty">
+        Войдите под учётной записью пользователя системы.
+    </div>
+</section>
+
+<section id="userPanel" class="section hidden">
+    <div class="user-panel-content">
+        <div id="currentUserInfo" class="subtitle"></div>
+        <button class="secondary-button" onclick="logout()">Выйти</button>
+    </div>
+
+    <h3>Смена пароля</h3>
+
+    <div class="user-controls">
+        <div class="control-group">
+            <label for="changeOldPassword">Текущий пароль</label>
+            <input
+                    id="changeOldPassword"
+                    type="password"
+                    autocomplete="current-password"
+                    placeholder="Введите текущий пароль"
+            >
+        </div>
+
+        <div class="control-group">
+            <label for="changeNewPassword">Новый пароль</label>
+            <input
+                    id="changeNewPassword"
+                    type="password"
+                    autocomplete="new-password"
+                    placeholder="Минимум 12 символов"
+            >
+        </div>
+
+        <div class="control-group">
+            <button onclick="changeOwnPassword()">Сменить пароль</button>
+        </div>
+    </div>
+
+    <pre id="changePasswordResult"></pre>
+</section>
+
+<main id="dashboard" class="layout hidden">
     <section class="quality-card">
         <div class="quality-title">Current quality index</div>
         <div id="qualityValue" class="quality-value">Loading...</div>
@@ -299,12 +410,12 @@
         <div id="events" class="events-list"></div>
     </section>
 
-    <section class="section">
+    <section id="anomaliesSection" class="section hidden">
         <h2>Active anomalies</h2>
         <div id="anomalies" class="events-list"></div>
     </section>
 
-    <section class="section">
+    <section id="historySection" class="section hidden">
         <h2>Telemetry history</h2>
 
         <div class="history-controls">
@@ -369,117 +480,98 @@
             <div class="empty">Select parameter and load history</div>
         </div>
     </section>
-    <section>
+
+    <section id="setpointsSection" class="section hidden">
         <h2>Настройка уставок</h2>
 
-        <select id="setpointSelect"></select>
+        <div class="history-controls">
+            <div class="control-group">
+                <label for="setpointSelect">Parameter</label>
+                <select id="setpointSelect"></select>
+            </div>
 
-        <div>
-            <label>Critical min</label>
-            <input id="criticalMin" type="number" step="0.01">
+            <div class="control-group">
+                <label for="criticalMin">Critical min</label>
+                <input id="criticalMin" type="number" step="0.01">
+            </div>
+
+            <div class="control-group">
+                <label for="warningMin">Warning min</label>
+                <input id="warningMin" type="number" step="0.01">
+            </div>
+
+            <div class="control-group">
+                <label for="normalMin">Normal min</label>
+                <input id="normalMin" type="number" step="0.01">
+            </div>
+
+            <div class="control-group">
+                <label for="normalMax">Normal max</label>
+                <input id="normalMax" type="number" step="0.01">
+            </div>
+
+            <div class="control-group">
+                <label for="warningMax">Warning max</label>
+                <input id="warningMax" type="number" step="0.01">
+            </div>
+
+            <div class="control-group">
+                <label for="criticalMax">Critical max</label>
+                <input id="criticalMax" type="number" step="0.01">
+            </div>
+
+            <div class="control-group">
+                <button id="saveSetpointButton" onclick="saveSetpoint()">Сохранить уставку</button>
+            </div>
         </div>
-
-        <div>
-            <label>Warning min</label>
-            <input id="warningMin" type="number" step="0.01">
-        </div>
-
-        <div>
-            <label>Normal min</label>
-            <input id="normalMin" type="number" step="0.01">
-        </div>
-
-        <div>
-            <label>Normal max</label>
-            <input id="normalMax" type="number" step="0.01">
-        </div>
-
-        <div>
-            <label>Warning max</label>
-            <input id="warningMax" type="number" step="0.01">
-        </div>
-
-        <div>
-            <label>Critical max</label>
-            <input id="criticalMax" type="number" step="0.01">
-        </div>
-
-        <button id="saveSetpointButton">Сохранить уставку</button>
 
         <pre id="setpointResult"></pre>
     </section>
+
+    <section id="usersSection" class="section hidden">
+        <h2>Управление пользователями</h2>
+
+        <h3>Создать пользователя</h3>
+
+        <div class="user-controls">
+            <div class="control-group">
+                <label for="newUsername">Username</label>
+                <input id="newUsername" type="text" placeholder="например: pavel.ivanov">
+            </div>
+
+            <div class="control-group">
+                <label for="newPassword">Password</label>
+                <input id="newPassword" type="password" placeholder="минимум 12 символов">
+            </div>
+
+            <div class="control-group">
+                <label for="newUserRole">Role</label>
+                <select id="newUserRole">
+                    <option value="operator">operator</option>
+                    <option value="technologist">technologist</option>
+                    <option value="admin">admin</option>
+                </select>
+            </div>
+
+            <div class="control-group checkbox-group">
+                <label class="checkbox-label">
+                    <input id="newUserIsActive" type="checkbox" checked>
+                    Active
+                </label>
+            </div>
+
+            <div class="control-group">
+                <button onclick="createUser()">Создать пользователя</button>
+            </div>
+        </div>
+
+        <pre id="userResult"></pre>
+
+        <h3>Список пользователей</h3>
+        <div id="users" class="users-list"></div>
+    </section>
 </main>
 
-<script src="/static/app.js?v=18"></script>
-<script>
-    let setpoints = [];
-
-    async function loadSetpoints() {
-        const response = await fetch('/api/setpoints');
-        setpoints = await response.json();
-
-        const select = document.getElementById('setpointSelect');
-        select.innerHTML = '';
-
-        for (const setpoint of setpoints) {
-            const option = document.createElement('option');
-            option.value = setpoint.id;
-            option.textContent = `${setpoint.parameterType} (${setpoint.unit})`;
-            select.appendChild(option);
-        }
-
-        fillSetpointForm();
-    }
-
-    function fillSetpointForm() {
-        const selectedId = Number(document.getElementById('setpointSelect').value);
-        const setpoint = setpoints.find(item => item.id === selectedId);
-
-        if (!setpoint) {
-            return;
-        }
-
-        document.getElementById('criticalMin').value = setpoint.criticalMin;
-        document.getElementById('warningMin').value = setpoint.warningMin;
-        document.getElementById('normalMin').value = setpoint.normalMin;
-        document.getElementById('normalMax').value = setpoint.normalMax;
-        document.getElementById('warningMax').value = setpoint.warningMax;
-        document.getElementById('criticalMax').value = setpoint.criticalMax;
-    }
-
-    async function saveSetpoint() {
-        const selectedId = Number(document.getElementById('setpointSelect').value);
-
-        const payload = {
-            criticalMin: Number(document.getElementById('criticalMin').value),
-            warningMin: Number(document.getElementById('warningMin').value),
-            normalMin: Number(document.getElementById('normalMin').value),
-            normalMax: Number(document.getElementById('normalMax').value),
-            warningMax: Number(document.getElementById('warningMax').value),
-            criticalMax: Number(document.getElementById('criticalMax').value)
-        };
-
-        const response = await fetch(`/api/setpoints/${selectedId}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
-
-        const result = await response.json();
-
-        document.getElementById('setpointResult').textContent = JSON.stringify(result, null, 2);
-
-        if (response.ok) {
-            await loadSetpoints();
-        }
-    }
-
-    document.getElementById('setpointSelect').addEventListener('change', fillSetpointForm);
-    document.getElementById('saveSetpointButton').addEventListener('click', saveSetpoint);
-
-    loadSetpoints();
-</script>
+<script src="/static/app.js?v=25"></script>
 </body>
 </html>

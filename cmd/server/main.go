@@ -82,9 +82,27 @@ func main() {
 		tokenManager,
 	)
 
-	requireAuth := httphandler.AuthMiddleware(logger, tokenManager)
+	userHandler := httphandler.NewUserHandler(
+		logger,
+		userRepository,
+	)
+
+	requireAuth := httphandler.AuthMiddleware(
+		logger,
+		tokenManager,
+		userRepository,
+	)
+
 	protected := func(handler nethttp.HandlerFunc) nethttp.HandlerFunc {
 		return requireAuth(handler).ServeHTTP
+	}
+
+	roles := func(handler nethttp.HandlerFunc, allowedRoles ...domain.UserRole) nethttp.HandlerFunc {
+		return requireAuth(
+			httphandler.RequireRoles(allowedRoles...)(
+				handler,
+			),
+		).ServeHTTP
 	}
 
 	ingestionService := ingestion.NewService(
@@ -146,22 +164,92 @@ func main() {
 
 	mux.HandleFunc("/api/login", authHandler.Login)
 	mux.HandleFunc("/api/me", protected(authHandler.Me))
+	mux.HandleFunc("/api/me/change-password", protected(authHandler.ChangePassword))
+	
+	mux.HandleFunc("/api/users", roles(
+		userHandler.ListCreate,
+		domain.UserRoleAdmin,
+	))
 
+	mux.HandleFunc("/api/users/", roles(
+		userHandler.Action,
+		domain.UserRoleAdmin,
+	))
+
+	// Operator+
 	mux.HandleFunc("/api/telemetry", protected(telemetryHandler.Create))
-	mux.HandleFunc("/api/telemetry/latest", protected(telemetryHandler.Latest))
-	mux.HandleFunc("/api/telemetry/history", protected(telemetryHandler.History))
+	mux.HandleFunc("/api/telemetry/latest", roles(
+		telemetryHandler.Latest,
+		domain.UserRoleOperator,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
 
-	mux.HandleFunc("/api/events", protected(eventHandler.List))
-	mux.HandleFunc("/api/events/active", protected(eventHandler.Active))
-	mux.HandleFunc("/api/events/", protected(eventHandler.Action))
+	mux.HandleFunc("/api/events", roles(
+		eventHandler.List,
+		domain.UserRoleOperator,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
 
-	mux.HandleFunc("/api/quality/latest", protected(qualityHandler.Latest))
-	mux.HandleFunc("/api/quality/history", protected(qualityHandler.History))
+	mux.HandleFunc("/api/events/active", roles(
+		eventHandler.Active,
+		domain.UserRoleOperator,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
 
-	mux.HandleFunc("/api/setpoints", protected(setpointHandler.List))
+	mux.HandleFunc("/api/events/", roles(
+		eventHandler.Action,
+		domain.UserRoleOperator,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
 
-	mux.HandleFunc("/api/anomalies", protected(anomalyHandler.List))
-	mux.HandleFunc("/api/anomalies/active", protected(anomalyHandler.Active))
+	mux.HandleFunc("/api/quality/latest", roles(
+		qualityHandler.Latest,
+		domain.UserRoleOperator,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
+
+	// Technologist+
+	mux.HandleFunc("/api/telemetry/history", roles(
+		telemetryHandler.History,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
+
+	mux.HandleFunc("/api/quality/history", roles(
+		qualityHandler.History,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
+
+	mux.HandleFunc("/api/anomalies", roles(
+		anomalyHandler.List,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
+
+	mux.HandleFunc("/api/anomalies/active", roles(
+		anomalyHandler.Active,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
+
+	mux.HandleFunc("/api/setpoints", roles(
+		setpointHandler.List,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
+
+	mux.HandleFunc("/api/setpoints/", roles(
+		setpointHandler.Update,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
+
 	server := &nethttp.Server{
 		Addr:              cfg.Server.Addr,
 		Handler:           mux,

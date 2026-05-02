@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/storage"
 	"log/slog"
@@ -44,30 +45,6 @@ func (h *EventHandler) List(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	writeJSON(w, nethttp.StatusOK, events)
-}
-
-// Action handles alert event actions, such as acknowledge and resolve.
-func (h *EventHandler) Action(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if r.Method != nethttp.MethodPost {
-		w.Header().Set("Allow", nethttp.MethodPost)
-		writeError(w, nethttp.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	id, action, ok := parseEventActionPath(r.URL.Path)
-	if !ok {
-		nethttp.NotFound(w, r)
-		return
-	}
-
-	switch action {
-	case "ack":
-		h.acknowledge(w, r, id)
-	case "resolve":
-		h.resolve(w, r, id)
-	default:
-		nethttp.NotFound(w, r)
-	}
 }
 
 func (h *EventHandler) acknowledge(w nethttp.ResponseWriter, r *nethttp.Request, id domain.AlertID) {
@@ -150,4 +127,56 @@ func (h *EventHandler) Active(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	writeJSON(w, nethttp.StatusOK, events)
+}
+
+// Action handles alert event actions, such as acknowledge and resolve.
+func (h *EventHandler) Action(w nethttp.ResponseWriter, r *nethttp.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	if r.Method != nethttp.MethodPost {
+		w.Header().Set("Allow", nethttp.MethodPost)
+		w.WriteHeader(nethttp.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	alertID, action, ok := parseEventActionPath(r.URL.Path)
+	if !ok {
+		w.WriteHeader(nethttp.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+		return
+	}
+
+	switch action {
+	case "ack":
+		h.acknowledge(w, r, alertID)
+
+	case "resolve":
+		if !canResolveEvent(w, r) {
+			return
+		}
+
+		h.resolve(w, r, alertID)
+
+	default:
+		w.WriteHeader(nethttp.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+	}
+}
+
+func canResolveEvent(w nethttp.ResponseWriter, r *nethttp.Request) bool {
+	user, ok := CurrentUser(r.Context())
+	if !ok {
+		w.WriteHeader(nethttp.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return false
+	}
+
+	if user.Role != domain.UserRoleTechnologist && user.Role != domain.UserRoleAdmin {
+		w.WriteHeader(nethttp.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden"})
+		return false
+	}
+
+	return true
 }

@@ -1,16 +1,13 @@
 package auth
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"strconv"
-	"strings"
 	"time"
 
 	"extrusion-quality-system/internal/domain"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 var (
@@ -19,10 +16,10 @@ var (
 )
 
 type Claims struct {
-	UserID   domain.UserID `json:"userId"`
-	Username string        `json:"username"`
-	Role     domain.Role   `json:"role"`
-	Expires  int64         `json:"exp"`
+	UserID   domain.UserID   `json:"userId"`
+	Username string          `json:"username"`
+	Role     domain.UserRole `json:"role"`
+	jwt.RegisteredClaims
 }
 
 type TokenManager struct {
@@ -38,62 +35,52 @@ func NewTokenManager(secret string, ttl time.Duration) *TokenManager {
 }
 
 func (m *TokenManager) Generate(user domain.User) (string, error) {
+	now := time.Now()
+	expiresAt := now.Add(m.ttl)
+
 	claims := Claims{
 		UserID:   user.ID,
 		Username: user.Username,
 		Role:     user.Role,
-		Expires:  time.Now().Add(m.ttl).Unix(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   strconv.FormatInt(int64(user.ID), 10),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+		},
 	}
 
-	payload, err := json.Marshal(claims)
-	if err != nil {
-		return "", err
-	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
-	signature := m.sign(encodedPayload)
-
-	return encodedPayload + "." + signature, nil
+	return token.SignedString(m.secret)
 }
 
-func (m *TokenManager) Parse(token string) (Claims, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 2 {
-		return Claims{}, ErrInvalidToken
-	}
+func (m *TokenManager) Parse(rawToken string) (Claims, error) {
+	claims := Claims{}
 
-	payload := parts[0]
-	signature := parts[1]
+	token, err := jwt.ParseWithClaims(
+		rawToken,
+		&claims,
+		func(token *jwt.Token) (any, error) {
+			return m.secret, nil
+		},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+	)
 
-	expectedSignature := m.sign(payload)
-	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
-		return Claims{}, ErrInvalidToken
-	}
-
-	rawPayload, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return Claims{}, ErrExpiredToken
+		}
+
 		return Claims{}, ErrInvalidToken
 	}
 
-	var claims Claims
-	if err := json.Unmarshal(rawPayload, &claims); err != nil {
+	if !token.Valid {
 		return Claims{}, ErrInvalidToken
 	}
 
-	if claims.Expires < time.Now().Unix() {
-		return Claims{}, ErrExpiredToken
+	if claims.UserID <= 0 || claims.Username == "" || claims.Role == "" {
+		return Claims{}, ErrInvalidToken
 	}
 
 	return claims, nil
-}
-
-func (m *TokenManager) sign(payload string) string {
-	mac := hmac.New(sha256.New, m.secret)
-	mac.Write([]byte(payload))
-
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}
-
-func (c Claims) Subject() string {
-	return strconv.FormatInt(int64(c.UserID), 10)
 }

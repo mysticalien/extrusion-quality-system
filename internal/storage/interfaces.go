@@ -84,6 +84,11 @@ type AnomalyRepository interface {
 }
 
 type UserRepository interface {
+	All(ctx context.Context) ([]domain.User, error)
 	FindByUsername(ctx context.Context, username string) (domain.User, bool, error)
 	FindByID(ctx context.Context, id domain.UserID) (domain.User, bool, error)
+	Create(ctx context.Context, user domain.User) (domain.User, error)
+	UpdateRole(ctx context.Context, id domain.UserID, role domain.UserRole) (domain.User, bool, error)
+	UpdatePassword(ctx context.Context, id domain.UserID, passwordHash string) (domain.User, bool, error)
+	SetActive(ctx context.Context, id domain.UserID, isActive bool) (domain.User, bool, error)
 }

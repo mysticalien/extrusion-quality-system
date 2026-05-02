@@ -1,4 +1,5 @@
 const refreshIntervalMs = 2000;
+const authTokenStorageKey = "authToken";
 
 const parameterNames = {
     pressure: "Pressure",
@@ -11,10 +12,81 @@ const parameterNames = {
     outlet_temperature: "Outlet temperature"
 };
 
-const authTokenStorageKey = "authToken";
-
+let currentUser = null;
 let lastHistoryReadings = [];
 let historyIsLoading = false;
+let dashboardIntervalID = null;
+let historyIntervalID = null;
+let setpoints = [];
+let users = [];
+
+function canManageSetpoints() {
+    return currentUser?.role === "technologist" || currentUser?.role === "admin";
+}
+
+function canViewAnomalies() {
+    return currentUser?.role === "technologist" || currentUser?.role === "admin";
+}
+
+function canViewHistory() {
+    return currentUser?.role === "technologist" || currentUser?.role === "admin";
+}
+
+function canManageUsers() {
+    return currentUser?.role === "admin";
+}
+
+function applyRolePermissions() {
+    const setpointsSection = document.getElementById("setpointsSection");
+    if (setpointsSection) {
+        setpointsSection.classList.toggle("hidden", !canManageSetpoints());
+    }
+
+    const anomaliesSection = document.getElementById("anomaliesSection");
+    if (anomaliesSection) {
+        anomaliesSection.classList.toggle("hidden", !canViewAnomalies());
+    }
+
+    const historySection = document.getElementById("historySection");
+    if (historySection) {
+        historySection.classList.toggle("hidden", !canViewHistory());
+    }
+
+    const usersSection = document.getElementById("usersSection");
+    if (usersSection) {
+        usersSection.classList.toggle("hidden", !canManageUsers());
+    }
+}
+
+async function loadCurrentUser() {
+    currentUser = await fetchJSON("/api/me");
+
+    applyRolePermissions();
+
+    window.dispatchEvent(new CustomEvent("extrusion:user-loaded", {
+        detail: currentUser
+    }));
+}
+
+function renderUserPanel() {
+    const loginSection = document.getElementById("loginSection");
+    const userPanel = document.getElementById("userPanel");
+    const dashboard = document.getElementById("dashboard");
+    const currentUserInfo = document.getElementById("currentUserInfo");
+
+    if (!currentUser) {
+        loginSection.classList.remove("hidden");
+        userPanel.classList.add("hidden");
+        dashboard.classList.add("hidden");
+        return;
+    }
+
+    loginSection.classList.add("hidden");
+    userPanel.classList.remove("hidden");
+    dashboard.classList.remove("hidden");
+
+    currentUserInfo.textContent = `Пользователь: ${currentUser.username}, роль: ${currentUser.role}`;
+}
 
 function showError(message) {
     const errorElement = document.getElementById("error");
@@ -28,6 +100,84 @@ function hideError() {
 
     errorElement.textContent = "";
     errorElement.style.display = "none";
+}
+
+async function readAPIError(response) {
+    let serverMessage = "";
+
+    try {
+        const body = await response.json();
+
+        if (body.error) {
+            serverMessage = body.error;
+        }
+    } catch {
+        try {
+            serverMessage = await response.text();
+        } catch {
+            serverMessage = "";
+        }
+    }
+
+    switch (serverMessage) {
+        case "invalid username or password":
+            return "Неверный логин или пароль";
+
+        case "missing authorization token":
+            return "Необходимо войти в систему";
+
+        case "invalid authorization token":
+            return "Сессия недействительна. Войдите заново";
+
+        case "authorization token expired":
+            return "Сессия истекла. Войдите заново";
+
+        case "user is inactive or not found":
+            return "Пользователь не найден или деактивирован";
+
+        case "forbidden":
+            return "Недостаточно прав для выполнения действия";
+
+        case "user already exists":
+            return "Пользователь с таким логином уже существует";
+
+        case "password must contain at least 12 characters":
+            return "Пароль должен содержать минимум 12 символов";
+
+        case "new password must contain at least 12 characters":
+            return "Новый пароль должен содержать минимум 12 символов";
+
+        case "old password is required":
+            return "Введите текущий пароль";
+
+        case "old password is incorrect":
+            return "Текущий пароль указан неверно";
+
+        case "new password must be different from old password":
+            return "Новый пароль должен отличаться от текущего";
+
+        case "username is required":
+            return "Введите логин";
+
+        case "invalid user role":
+            return "Некорректная роль пользователя";
+
+        case "invalid JSON body":
+            return "Некорректные данные формы";
+
+        case "setpoint not found":
+            return "Уставка не найдена";
+
+        case "failed to update setpoint":
+            return "Не удалось обновить уставку";
+
+        default:
+            if (serverMessage) {
+                return serverMessage;
+            }
+
+            return `Ошибка запроса: ${response.status}`;
+    }
 }
 
 async function fetchJSON(url, options = {}) {
@@ -47,12 +197,175 @@ async function fetchJSON(url, options = {}) {
     });
 
     if (!response.ok) {
-        const text = await response.text();
-
-        throw new Error(`${url}: ${response.status} ${text}`);
+        const message = await readAPIError(response);
+        throw new Error(message);
     }
 
     return response.json();
+}
+
+async function login() {
+    const usernameInput = document.getElementById("loginUsername");
+    const passwordInput = document.getElementById("loginPassword");
+    const loginButton = document.getElementById("loginButton");
+
+    try {
+        hideError();
+
+        loginButton.disabled = true;
+        loginButton.textContent = "Входим...";
+
+        const response = await fetch("/api/login", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                username: usernameInput.value.trim(),
+                password: passwordInput.value
+            })
+        });
+
+        if (!response.ok) {
+            const message = await readAPIError(response);
+            throw new Error(message);
+        }
+
+        const result = await response.json();
+
+        localStorage.setItem(authTokenStorageKey, result.token);
+
+        passwordInput.value = "";
+
+        await initializeAuthenticatedDashboard();
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        loginButton.disabled = false;
+        loginButton.textContent = "Войти";
+    }
+}
+
+function logout() {
+    localStorage.removeItem(authTokenStorageKey);
+    currentUser = null;
+    lastHistoryReadings = [];
+    setpoints = [];
+    users = [];
+
+    stopPolling();
+
+    clearSensitiveForms();
+    renderUserPanel();
+    applyRolePermissions();
+    hideError();
+}
+
+function clearSensitiveForms() {
+    const passwordFields = [
+        "loginPassword",
+        "changeOldPassword",
+        "changeNewPassword",
+        "newPassword"
+    ];
+
+    for (const fieldID of passwordFields) {
+        const element = document.getElementById(fieldID);
+
+        if (element) {
+            element.value = "";
+        }
+    }
+
+    const changePasswordResult = document.getElementById("changePasswordResult");
+    if (changePasswordResult) {
+        changePasswordResult.textContent = "";
+    }
+
+    const userResult = document.getElementById("userResult");
+    if (userResult) {
+        userResult.textContent = "";
+    }
+
+    const setpointResult = document.getElementById("setpointResult");
+    if (setpointResult) {
+        setpointResult.textContent = "";
+    }
+}
+
+async function changeOwnPassword() {
+    const oldPasswordInput = document.getElementById("changeOldPassword");
+    const newPasswordInput = document.getElementById("changeNewPassword");
+    const resultElement = document.getElementById("changePasswordResult");
+
+    const payload = {
+        oldPassword: oldPasswordInput.value,
+        newPassword: newPasswordInput.value
+    };
+
+    try {
+        hideError();
+
+        const result = await fetchJSON("/api/me/change-password", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        oldPasswordInput.value = "";
+        newPasswordInput.value = "";
+
+        resultElement.textContent = `Пароль успешно изменён для пользователя ${result.username}`;
+    } catch (error) {
+        resultElement.textContent = error.message;
+    }
+}
+
+async function initializeAuthenticatedDashboard() {
+    await loadCurrentUser();
+
+    renderUserPanel();
+    applyRolePermissions();
+
+    if (canManageSetpoints()) {
+        await loadSetpoints();
+    }
+
+    if (canManageUsers()) {
+        await loadUsers();
+    }
+
+    await refreshDashboard();
+
+    startPolling();
+}
+
+function startPolling() {
+    stopPolling();
+
+    dashboardIntervalID = setInterval(refreshDashboard, refreshIntervalMs);
+
+    historyIntervalID = setInterval(() => {
+        const autoRefreshEnabled = document.getElementById("historyAutoRefresh")?.checked;
+
+        if (autoRefreshEnabled && canViewHistory()) {
+            loadTelemetryHistory();
+        }
+    }, refreshIntervalMs);
+}
+
+function stopPolling() {
+    if (dashboardIntervalID !== null) {
+        clearInterval(dashboardIntervalID);
+        dashboardIntervalID = null;
+    }
+
+    if (historyIntervalID !== null) {
+        clearInterval(historyIntervalID);
+        historyIntervalID = null;
+    }
 }
 
 function formatDate(value) {
@@ -69,6 +382,15 @@ function formatNumber(value) {
     }
 
     return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+}
+
+function escapeHTML(value) {
+    return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
 }
 
 function toRFC3339FromDateTimeLocal(value) {
@@ -196,10 +518,10 @@ function renderParameters(readings) {
 
         return `
       <article class="parameter-card">
-        <div class="parameter-name">${name}</div>
-        <div class="parameter-value">${formatNumber(reading.value)} ${reading.unit}</div>
+        <div class="parameter-name">${escapeHTML(name)}</div>
+        <div class="parameter-value">${formatNumber(reading.value)} ${escapeHTML(reading.unit)}</div>
         <div class="parameter-meta">
-          Source: ${reading.sourceId}<br />
+          Source: ${escapeHTML(reading.sourceId)}<br />
           Measured at: ${formatDate(reading.measuredAt)}
         </div>
       </article>
@@ -223,16 +545,16 @@ function renderEvents(events) {
         return `
       <article class="event-card">
         <div class="event-header">
-          <div class="event-level">${event.level} · ${event.parameterType}</div>
-          <div class="event-status">${event.status}</div>
+          <div class="event-level">${escapeHTML(event.level)} · ${escapeHTML(event.parameterType)}</div>
+          <div class="event-status">${escapeHTML(event.status)}</div>
         </div>
 
-        <div class="event-message">${event.message}</div>
+        <div class="event-message">${escapeHTML(event.message)}</div>
 
         <div class="event-meta">
           Created at: ${formatDate(event.createdAt)}<br />
-          Value: ${formatNumber(event.value)} ${event.unit}<br />
-          Source: ${event.sourceId}
+          Value: ${formatNumber(event.value)} ${escapeHTML(event.unit)}<br />
+          Source: ${escapeHTML(event.sourceId)}
         </div>
 
         <button ${disabled} onclick="acknowledgeEvent(${event.id})">
@@ -242,7 +564,6 @@ function renderEvents(events) {
     `;
     }).join("");
 }
-
 
 function renderAnomalies(anomalies) {
     const container = document.getElementById("anomalies");
@@ -260,17 +581,17 @@ function renderAnomalies(anomalies) {
         return `
       <article class="event-card">
         <div class="event-header">
-          <div class="event-level">${anomaly.level} · ${anomaly.type}</div>
-          <div class="event-status">${anomaly.status}</div>
+          <div class="event-level">${escapeHTML(anomaly.level)} · ${escapeHTML(anomaly.type)}</div>
+          <div class="event-status">${escapeHTML(anomaly.status)}</div>
         </div>
 
-        <div class="event-message">${anomaly.message}</div>
+        <div class="event-message">${escapeHTML(anomaly.message)}</div>
 
         <div class="event-meta">
-          Parameter: ${anomaly.parameterType}<br />
+          Parameter: ${escapeHTML(anomaly.parameterType)}<br />
           Observed at: ${formatDate(anomaly.observedAt)}<br />
           Updated at: ${formatDate(anomaly.updatedAt)}<br />
-          Source: ${anomaly.sourceId}
+          Source: ${escapeHTML(anomaly.sourceId)}
         </div>
       </article>
     `;
@@ -291,13 +612,13 @@ function renderHistoryList(readings) {
         return `
       <article class="history-card">
         <div class="history-header">
-          <div class="history-value">${formatNumber(reading.value)} ${reading.unit}</div>
+          <div class="history-value">${formatNumber(reading.value)} ${escapeHTML(reading.unit)}</div>
           <div class="history-time">${formatDate(reading.measuredAt)}</div>
         </div>
 
         <div class="history-meta">
-          Parameter: ${name}<br />
-          Source: ${reading.sourceId}<br />
+          Parameter: ${escapeHTML(name)}<br />
+          Source: ${escapeHTML(reading.sourceId)}<br />
           Created at: ${formatDate(reading.createdAt)}
         </div>
       </article>
@@ -307,7 +628,17 @@ function renderHistoryList(readings) {
 
 function drawHistoryChart(readings) {
     const canvas = document.getElementById("historyChart");
+
+    if (!canvas) {
+        return;
+    }
+
     const wrapper = canvas.parentElement;
+
+    if (!wrapper) {
+        return;
+    }
+
     const ctx = canvas.getContext("2d");
 
     const width = wrapper.clientWidth - 24;
@@ -432,27 +763,36 @@ async function acknowledgeEvent(eventId) {
         showError(error.message);
     }
 }
+
 async function refreshDashboard() {
     try {
         hideError();
 
-        const [quality, telemetry, events, anomalies] = await Promise.all([
+        const [quality, telemetry, events] = await Promise.all([
             fetchJSON("/api/quality/latest"),
             fetchJSON("/api/telemetry/latest"),
-            fetchJSON("/api/events/active"),
-            fetchJSON("/api/anomalies/active")
+            fetchJSON("/api/events/active")
         ]);
 
         renderQuality(quality);
         renderParameters(telemetry);
         renderEvents(events);
-        renderAnomalies(anomalies);
+
+        if (canViewAnomalies()) {
+            const anomalies = await fetchJSON("/api/anomalies/active");
+            renderAnomalies(anomalies);
+        }
     } catch (error) {
         showError(error.message);
     }
 }
 
 async function loadTelemetryHistory() {
+    if (!canViewHistory()) {
+        showError("history is not available for current role");
+        return;
+    }
+
     const button = document.getElementById("loadHistoryButton");
 
     if (historyIsLoading) {
@@ -498,27 +838,327 @@ async function loadTelemetryHistory() {
     }
 }
 
-function startDashboard() {
+async function loadSetpoints() {
+    if (!canManageSetpoints()) {
+        return;
+    }
+
+    setpoints = await fetchJSON("/api/setpoints");
+
+    const select = document.getElementById("setpointSelect");
+    select.innerHTML = "";
+
+    for (const setpoint of setpoints) {
+        const option = document.createElement("option");
+        option.value = setpoint.id;
+        option.textContent = `${setpoint.parameterType} (${setpoint.unit})`;
+        select.appendChild(option);
+    }
+
+    fillSetpointForm();
+}
+
+function fillSetpointForm() {
+    const selectedId = Number(document.getElementById("setpointSelect").value);
+    const setpoint = setpoints.find((item) => item.id === selectedId);
+
+    if (!setpoint) {
+        return;
+    }
+
+    document.getElementById("criticalMin").value = setpoint.criticalMin;
+    document.getElementById("warningMin").value = setpoint.warningMin;
+    document.getElementById("normalMin").value = setpoint.normalMin;
+    document.getElementById("normalMax").value = setpoint.normalMax;
+    document.getElementById("warningMax").value = setpoint.warningMax;
+    document.getElementById("criticalMax").value = setpoint.criticalMax;
+}
+
+async function saveSetpoint() {
+    if (!canManageSetpoints()) {
+        showError("setpoints are not available for current role");
+        return;
+    }
+
+    const selectedId = Number(document.getElementById("setpointSelect").value);
+
+    const payload = {
+        criticalMin: Number(document.getElementById("criticalMin").value),
+        warningMin: Number(document.getElementById("warningMin").value),
+        normalMin: Number(document.getElementById("normalMin").value),
+        normalMax: Number(document.getElementById("normalMax").value),
+        warningMax: Number(document.getElementById("warningMax").value),
+        criticalMax: Number(document.getElementById("criticalMax").value)
+    };
+
+    try {
+        const result = await fetchJSON(`/api/setpoints/${selectedId}`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        document.getElementById("setpointResult").textContent = JSON.stringify(result, null, 2);
+
+        await loadSetpoints();
+    } catch (error) {
+        document.getElementById("setpointResult").textContent = error.message;
+    }
+}
+
+async function loadUsers() {
+    if (!canManageUsers()) {
+        return;
+    }
+
+    users = await fetchJSON("/api/users");
+    renderUsers(users);
+}
+
+function renderUsers(usersToRender) {
+    const container = document.getElementById("users");
+
+    if (!container) {
+        return;
+    }
+
+    if (!usersToRender || usersToRender.length === 0) {
+        container.innerHTML = `<div class="empty">No users found</div>`;
+        return;
+    }
+
+    container.innerHTML = usersToRender.map((user) => {
+        const activeText = user.isActive ? "active" : "inactive";
+        const activeButton = user.isActive
+            ? `<button class="danger-button" onclick="deactivateUser(${user.id})">Deactivate</button>`
+            : `<button class="success-button" onclick="activateUser(${user.id})">Activate</button>`;
+
+        return `
+      <article class="user-card">
+        <div class="user-header">
+          <div class="user-name">#${user.id} · ${escapeHTML(user.username)}</div>
+          <div class="user-status">${activeText}</div>
+        </div>
+
+        <div class="user-meta">
+          Role: ${escapeHTML(user.role)}<br />
+          Created at: ${formatDate(user.createdAt)}<br />
+          Updated at: ${formatDate(user.updatedAt)}
+        </div>
+
+        <div class="user-actions">
+          <div class="control-group">
+            <label for="userRole_${user.id}">Role</label>
+            <select id="userRole_${user.id}">
+              <option value="operator" ${user.role === "operator" ? "selected" : ""}>operator</option>
+              <option value="technologist" ${user.role === "technologist" ? "selected" : ""}>technologist</option>
+              <option value="admin" ${user.role === "admin" ? "selected" : ""}>admin</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <button onclick="updateUserRole(${user.id})">Update role</button>
+          </div>
+
+          <div class="control-group">
+            ${activeButton}
+          </div>
+
+          <div class="control-group">
+            <label for="resetPassword_${user.id}">New password</label>
+            <input id="resetPassword_${user.id}" type="password" placeholder="минимум 12 символов">
+          </div>
+
+          <div class="control-group">
+            <button class="secondary-button" onclick="resetUserPassword(${user.id})">Reset password</button>
+          </div>
+        </div>
+      </article>
+    `;
+    }).join("");
+}
+
+async function createUser() {
+    if (!canManageUsers()) {
+        showError("users management is not available for current role");
+        return;
+    }
+
+    const resultElement = document.getElementById("userResult");
+
+    const usernameInput = document.getElementById("newUsername");
+    const passwordInput = document.getElementById("newPassword");
+    const roleInput = document.getElementById("newUserRole");
+    const isActiveInput = document.getElementById("newUserIsActive");
+
+    const payload = {
+        username: usernameInput.value.trim(),
+        password: passwordInput.value,
+        role: roleInput.value,
+        isActive: isActiveInput.checked
+    };
+
+    try {
+        const result = await fetchJSON("/api/users", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        resultElement.textContent = JSON.stringify(result, null, 2);
+
+        usernameInput.value = "";
+        passwordInput.value = "";
+        roleInput.value = "operator";
+        isActiveInput.checked = true;
+
+        await loadUsers();
+    } catch (error) {
+        resultElement.textContent = error.message;
+    }
+}
+
+async function updateUserRole(userId) {
+    if (!canManageUsers()) {
+        showError("users management is not available for current role");
+        return;
+    }
+
+    const role = document.getElementById(`userRole_${userId}`).value;
+
+    try {
+        const result = await fetchJSON(`/api/users/${userId}/role`, {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                role
+            })
+        });
+
+        document.getElementById("userResult").textContent = JSON.stringify(result, null, 2);
+
+        await loadUsers();
+    } catch (error) {
+        document.getElementById("userResult").textContent = error.message;
+    }
+}
+
+async function activateUser(userId) {
+    await setUserActive(userId, true);
+}
+
+async function deactivateUser(userId) {
+    await setUserActive(userId, false);
+}
+
+async function setUserActive(userId, isActive) {
+    if (!canManageUsers()) {
+        showError("users management is not available for current role");
+        return;
+    }
+
+    const action = isActive ? "activate" : "deactivate";
+
+    try {
+        const result = await fetchJSON(`/api/users/${userId}/${action}`, {
+            method: "POST"
+        });
+
+        document.getElementById("userResult").textContent = JSON.stringify(result, null, 2);
+
+        await loadUsers();
+    } catch (error) {
+        document.getElementById("userResult").textContent = error.message;
+    }
+}
+
+async function resetUserPassword(userId) {
+    if (!canManageUsers()) {
+        showError("users management is not available for current role");
+        return;
+    }
+
+    const passwordInput = document.getElementById(`resetPassword_${userId}`);
+    const password = passwordInput.value;
+
+    try {
+        const result = await fetchJSON(`/api/users/${userId}/reset-password`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                password
+            })
+        });
+
+        passwordInput.value = "";
+
+        document.getElementById("userResult").textContent = JSON.stringify(result, null, 2);
+
+        await loadUsers();
+    } catch (error) {
+        document.getElementById("userResult").textContent = error.message;
+    }
+}
+
+async function startDashboard() {
     updateHistoryRangeControls();
 
-    refreshDashboard();
-    setInterval(refreshDashboard, refreshIntervalMs);
+    const setpointSelect = document.getElementById("setpointSelect");
+    if (setpointSelect) {
+        setpointSelect.addEventListener("change", fillSetpointForm);
+    }
 
-    setInterval(() => {
-        const autoRefreshEnabled = document.getElementById("historyAutoRefresh")?.checked;
+    const token = localStorage.getItem(authTokenStorageKey);
 
-        if (autoRefreshEnabled) {
-            loadTelemetryHistory();
-        }
-    }, refreshIntervalMs);
+    if (!token) {
+        renderUserPanel();
+        return;
+    }
+
+    try {
+        await initializeAuthenticatedDashboard();
+    } catch (error) {
+        localStorage.removeItem(authTokenStorageKey);
+        currentUser = null;
+        renderUserPanel();
+        showError("Сессия недействительна. Войдите заново.");
+    }
 
     window.addEventListener("resize", () => {
-        drawHistoryChart(lastHistoryReadings);
+        if (canViewHistory()) {
+            drawHistoryChart(lastHistoryReadings);
+        }
     });
 }
 
+window.login = login;
+window.logout = logout;
+window.changeOwnPassword = changeOwnPassword;
+
 window.acknowledgeEvent = acknowledgeEvent;
+
 window.loadTelemetryHistory = loadTelemetryHistory;
 window.updateHistoryRangeControls = updateHistoryRangeControls;
+
+window.saveSetpoint = saveSetpoint;
+
+window.createUser = createUser;
+window.updateUserRole = updateUserRole;
+window.activateUser = activateUser;
+window.deactivateUser = deactivateUser;
+window.resetUserPassword = resetUserPassword;
+
+window.canManageSetpoints = canManageSetpoints;
+window.canViewHistory = canViewHistory;
+window.canViewAnomalies = canViewAnomalies;
+window.canManageUsers = canManageUsers;
 
 startDashboard();

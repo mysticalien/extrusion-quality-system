@@ -99,6 +99,14 @@ func (h *UserHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
+	h.logger.Info(
+		"user created",
+		"userId", user.ID,
+		"username", user.Username,
+		"role", user.Role,
+		"isActive", user.IsActive,
+	)
+
 	writeJSON(w, nethttp.StatusCreated, created)
 }
 
@@ -185,6 +193,13 @@ func (h *UserHandler) UpdateRole(
 		return
 	}
 
+	h.logger.Info(
+		"user role changed",
+		"userId", user.ID,
+		"username", user.Username,
+		"role", user.Role,
+	)
+
 	writeJSON(w, nethttp.StatusOK, user)
 }
 
@@ -205,6 +220,13 @@ func (h *UserHandler) SetActive(
 		writeError(w, nethttp.StatusNotFound, "user not found")
 		return
 	}
+
+	h.logger.Info(
+		"user activation changed",
+		"userId", user.ID,
+		"username", user.Username,
+		"isActive", user.IsActive,
+	)
 
 	writeJSON(w, nethttp.StatusOK, user)
 }
@@ -249,6 +271,12 @@ func (h *UserHandler) ResetPassword(
 		writeError(w, nethttp.StatusNotFound, "user not found")
 		return
 	}
+
+	h.logger.Info(
+		"user password reset",
+		"userId", user.ID,
+		"username", user.Username,
+	)
 
 	writeJSON(w, nethttp.StatusOK, user)
 }

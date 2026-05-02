@@ -64,6 +64,11 @@ func (h *AuthHandler) Login(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
+	h.logger.Debug(
+		"login attempt",
+		"username", request.Username,
+	)
+
 	user, found, err := h.userRepository.FindByUsername(r.Context(), strings.TrimSpace(request.Username))
 	if err != nil {
 		h.logger.Error("find user failed", "username", request.Username, "error", err)
@@ -72,6 +77,12 @@ func (h *AuthHandler) Login(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	if !found || !user.IsActive || !authservice.CheckPassword(request.Password, user.PasswordHash) {
+		h.logger.Warn(
+			"login failed",
+			"username", request.Username,
+			"reason", "invalid credentials",
+		)
+
 		writeError(w, nethttp.StatusUnauthorized, "invalid username or password")
 		return
 	}
@@ -82,6 +93,13 @@ func (h *AuthHandler) Login(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusInternalServerError, "failed to generate token")
 		return
 	}
+
+	h.logger.Info(
+		"login succeeded",
+		"userId", user.ID,
+		"username", user.Username,
+		"role", user.Role,
+	)
 
 	writeJSON(w, nethttp.StatusOK, loginResponse{
 		Token: token,
@@ -114,6 +132,12 @@ func AuthMiddleware(
 		return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			rawToken, ok := bearerToken(r.Header.Get("Authorization"))
 			if !ok {
+				logger.Warn(
+					"authorization failed",
+					"reason", "missing authorization token",
+					"method", r.Method,
+					"path", r.URL.Path,
+				)
 				writeError(w, nethttp.StatusUnauthorized, "missing authorization token")
 				return
 			}
@@ -122,6 +146,13 @@ func AuthMiddleware(
 			if err != nil {
 				status := nethttp.StatusUnauthorized
 				message := "invalid authorization token"
+
+				logger.Warn(
+					"authorization failed",
+					"reason", "invalid authorization token",
+					"method", r.Method,
+					"path", r.URL.Path,
+				)
 
 				if errors.Is(err, authservice.ErrExpiredToken) {
 					message = "authorization token expired"
@@ -142,6 +173,15 @@ func AuthMiddleware(
 				writeError(w, nethttp.StatusUnauthorized, "user is inactive or not found")
 				return
 			}
+
+			logger.Debug(
+				"request authorized",
+				"userId", user.ID,
+				"username", user.Username,
+				"role", user.Role,
+				"method", r.Method,
+				"path", r.URL.Path,
+			)
 
 			ctx := context.WithValue(r.Context(), currentUserContextKey, user)
 

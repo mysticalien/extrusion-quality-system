@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	nethttp "net/http"
 	"strconv"
 	"strings"
@@ -13,13 +14,16 @@ import (
 )
 
 type QualityWeightHandler struct {
+	logger                  *slog.Logger
 	qualityWeightRepository storage.QualityWeightRepository
 }
 
 func NewQualityWeightHandler(
+	logger *slog.Logger,
 	qualityWeightRepository storage.QualityWeightRepository,
 ) *QualityWeightHandler {
 	return &QualityWeightHandler{
+		logger:                  logger,
 		qualityWeightRepository: qualityWeightRepository,
 	}
 }
@@ -118,6 +122,14 @@ func (h *QualityWeightHandler) Update(w nethttp.ResponseWriter, r *nethttp.Reque
 		writeError(w, nethttp.StatusNotFound, "quality weight not found")
 		return
 	}
+
+	h.logger.Info(
+		"quality weight updated",
+		"qualityWeightId", weight.ID,
+		"parameterType", weight.ParameterType,
+		"weight", weight.Weight,
+		"updatedBy", updatedBy,
+	)
 
 	writeJSON(w, nethttp.StatusOK, weight)
 }

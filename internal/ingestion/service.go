@@ -151,6 +151,15 @@ func (s *Service) Process(ctx context.Context, input TelemetryInput) (TelemetryR
 		return TelemetryResult{}, err
 	}
 
+	s.logger.Info(
+		"telemetry received",
+		"parameterType", input.ParameterType,
+		"value", input.Value,
+		"unit", input.Unit,
+		"sourceId", input.SourceID,
+		"measuredAt", input.MeasuredAt,
+	)
+
 	reading := domain.TelemetryReading{
 		ParameterType: input.ParameterType,
 		Value:         input.Value,
@@ -183,6 +192,30 @@ func (s *Service) Process(ctx context.Context, input TelemetryInput) (TelemetryR
 		alertCreated = created
 		alertUpdated = updated
 
+		if created {
+			s.logger.Warn(
+				"alert created",
+				"alertId", alert.ID,
+				"parameterType", alert.ParameterType,
+				"level", alert.Level,
+				"value", alert.Value,
+				"unit", alert.Unit,
+				"sourceId", alert.SourceID,
+			)
+		}
+
+		if updated {
+			s.logger.Warn(
+				"alert updated",
+				"alertId", alert.ID,
+				"parameterType", alert.ParameterType,
+				"level", alert.Level,
+				"value", alert.Value,
+				"unit", alert.Unit,
+				"sourceId", alert.SourceID,
+			)
+		}
+
 		id := alert.ID
 		alertID = &id
 
@@ -195,6 +228,14 @@ func (s *Service) Process(ctx context.Context, input TelemetryInput) (TelemetryR
 		}
 	}
 
+	if resolvedAlerts > 0 {
+		s.logger.Info(
+			"alerts resolved",
+			"parameterType", reading.ParameterType,
+			"resolvedAlerts", resolvedAlerts,
+		)
+	}
+
 	activeAlerts, err := s.alertRepository.Active(ctx)
 	if err != nil {
 		return TelemetryResult{}, fmt.Errorf("load active alerts: %w", err)
@@ -203,6 +244,18 @@ func (s *Service) Process(ctx context.Context, input TelemetryInput) (TelemetryR
 	detectedAnomalies, err := s.anomalyDetector.Detect(ctx, reading)
 	if err != nil {
 		return TelemetryResult{}, fmt.Errorf("detect anomalies: %w", err)
+	}
+
+	for _, anomaly := range detectedAnomalies {
+		s.logger.Warn(
+			"anomaly detected",
+			"type", anomaly.Type,
+			"parameterType", anomaly.ParameterType,
+			"level", anomaly.Level,
+			"message", anomaly.Message,
+			"sourceId", anomaly.SourceID,
+			"observedAt", anomaly.ObservedAt,
+		)
 	}
 
 	if err := s.syncAnomalies(ctx, reading.ParameterType, detectedAnomalies); err != nil {
@@ -224,6 +277,15 @@ func (s *Service) Process(ctx context.Context, input TelemetryInput) (TelemetryR
 		qualityWeights,
 		activeAnomalies,
 	)
+
+	s.logger.Info(
+		"quality index calculated",
+		"value", qualityIndex.Value,
+		"state", qualityIndex.State,
+		"parameterPenalty", qualityIndex.ParameterPenalty,
+		"anomalyPenalty", qualityIndex.AnomalyPenalty,
+	)
+
 	qualityIndex, err = s.qualityRepository.Save(ctx, qualityIndex)
 	if err != nil {
 		return TelemetryResult{}, fmt.Errorf("save quality index: %w", err)

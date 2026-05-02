@@ -15,6 +15,11 @@ type Config struct {
 	Auth      AuthConfig
 	MQTT      MQTTConfig
 	Simulator SimulatorConfig
+	Logging   LoggingConfig
+}
+
+type LoggingConfig struct {
+	Level string `env:"LOG_LEVEL" env-default:"info"`
 }
 
 type ServerConfig struct {
@@ -171,6 +176,13 @@ func validate(cfg Config) error {
 
 	if cfg.Simulator.MQTTTimeout <= 0 {
 		return fmt.Errorf("SIMULATOR_MQTT_TIMEOUT must be positive")
+	}
+
+	switch strings.ToLower(cfg.Logging.Level) {
+	case "debug", "info", "warn", "error":
+		// ok
+	default:
+		return fmt.Errorf("LOG_LEVEL must be debug, info, warn or error")
 	}
 
 	return nil

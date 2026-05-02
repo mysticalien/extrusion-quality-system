@@ -113,6 +113,19 @@ func (h *SetpointHandler) Update(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
+	updatedBy := "unknown"
+
+	if user, ok := CurrentUser(r.Context()); ok {
+		updatedBy = user.Username
+	}
+
+	h.logger.Info(
+		"setpoint updated",
+		"setpointId", setpoint.ID,
+		"parameterType", setpoint.ParameterType,
+		"updatedBy", updatedBy,
+	)
+
 	writeJSON(w, nethttp.StatusOK, setpoint)
 }
 

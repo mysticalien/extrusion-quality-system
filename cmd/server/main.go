@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	nethttp "net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -43,13 +44,29 @@ func healthHandler(w nethttp.ResponseWriter, r *nethttp.Request) {
 }
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	var logLevel slog.LevelVar
+
+	logLevel.Set(slog.LevelInfo)
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: &logLevel,
+	}))
 
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("load config failed", "error", err)
 		os.Exit(1)
 	}
+
+	logLevel.Set(parseLogLevel(cfg.Logging.Level))
+
+	logger.Info(
+		"configuration loaded",
+		"serverAddr", cfg.Server.Addr,
+		"databaseConfigured", cfg.Database.URL != "",
+		"mqttEnabled", cfg.MQTT.Enabled,
+		"mqttBrokerUrl", cfg.MQTT.BrokerURL,
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -61,7 +78,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	logger.Info("connected to postgres")
+	logger.Info("database connected", "databaseConfigured", cfg.Database.URL != "")
 
 	telemetryRepository := storage.NewPostgresTelemetryRepository(pool)
 	alertRepository := storage.NewPostgresAlertRepository(pool)
@@ -127,7 +144,7 @@ func main() {
 
 	eventHandler := httphandler.NewEventHandler(logger, alertRepository)
 	qualityHandler := httphandler.NewQualityHandler(logger, qualityRepository)
-	qualityWeightHandler := httphandler.NewQualityWeightHandler(qualityWeightRepository)
+	qualityWeightHandler := httphandler.NewQualityWeightHandler(logger, qualityWeightRepository)
 	anomalyHandler := httphandler.NewAnomalyHandler(logger, anomalyRepository)
 
 	logger.Info(
@@ -273,10 +290,23 @@ func main() {
 		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
 	}
 
-	logger.Info("starting server", "addr", server.Addr)
+	logger.Info("server started", "addr", server.Addr)
 
 	if err := server.ListenAndServe(); err != nil {
 		logger.Error("server failed to start", "error", err)
 		os.Exit(1)
+	}
+}
+
+func parseLogLevel(value string) slog.Level {
+	switch strings.ToLower(value) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }

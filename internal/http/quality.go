@@ -42,7 +42,10 @@ func (h *QualityHandler) Latest(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	if !found {
-		qualityIndex = analytics.CalculateQualityIndex(nil)
+		qualityIndex = analytics.CalculateQualityIndex(
+			nil,
+			analytics.DefaultQualityWeights(),
+		)
 	}
 
 	writeJSON(w, nethttp.StatusOK, qualityIndex)

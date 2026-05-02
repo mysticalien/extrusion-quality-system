@@ -36,6 +36,10 @@ function canManageUsers() {
     return currentUser?.role === "admin";
 }
 
+function canViewQualityWeights() {
+    return currentUser?.role === "technologist" || currentUser?.role === "admin";
+}
+
 function applyRolePermissions() {
     const setpointsSection = document.getElementById("setpointsSection");
     if (setpointsSection) {
@@ -55,6 +59,11 @@ function applyRolePermissions() {
     const usersSection = document.getElementById("usersSection");
     if (usersSection) {
         usersSection.classList.toggle("hidden", !canManageUsers());
+    }
+
+    const qualityWeightsSection = document.getElementById("qualityWeightsSection");
+    if (qualityWeightsSection) {
+        qualityWeightsSection.classList.toggle("hidden", !canViewQualityWeights());
     }
 }
 
@@ -329,6 +338,10 @@ async function initializeAuthenticatedDashboard() {
     renderUserPanel();
     applyRolePermissions();
 
+    if (canViewQualityWeights()) {
+        await loadQualityWeights();
+    }
+
     if (canManageSetpoints()) {
         await loadSetpoints();
     }
@@ -503,6 +516,89 @@ function renderQuality(quality) {
 
     stateElement.className = "quality-state";
     stateElement.classList.add(quality.state || "unknown");
+}
+
+async function loadQualityWeights() {
+    if (!canViewQualityWeights()) {
+        return;
+    }
+
+    const weights = await fetchJSON("/api/quality/weights");
+
+    renderQualityWeights(weights);
+}
+
+async function saveQualityWeight(weightId) {
+    if (!canViewQualityWeights()) {
+        showError("quality weights are not available for current role");
+        return;
+    }
+
+    const input = document.getElementById(`qualityWeight_${weightId}`);
+    const weight = Number(input.value);
+
+    try {
+        hideError();
+
+        await fetchJSON(`/api/quality/weights/${weightId}`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                weight
+            })
+        });
+
+        await loadQualityWeights();
+    } catch (error) {
+        showError(error.message);
+    }
+}
+
+function renderQualityWeights(weights) {
+    const container = document.getElementById("qualityWeights");
+
+    if (!container) {
+        return;
+    }
+
+    if (!weights || weights.length === 0) {
+        container.innerHTML = `<div class="empty">No quality weights configured</div>`;
+        return;
+    }
+
+    container.innerHTML = weights.map((item) => {
+        const name = parameterNames[item.parameterType] || item.parameterType;
+
+        return `
+      <article class="parameter-card">
+        <div class="parameter-name">${escapeHTML(name)}</div>
+
+        <div class="control-group">
+          <label for="qualityWeight_${item.id}">Weight</label>
+          <input
+            id="qualityWeight_${item.id}"
+            type="number"
+            min="0.1"
+            max="10"
+            step="0.1"
+            value="${formatNumber(item.weight)}"
+          >
+        </div>
+
+        <div class="parameter-meta">
+          Parameter: ${escapeHTML(item.parameterType)}<br />
+          Updated at: ${formatDate(item.updatedAt)}<br />
+          Updated by: ${escapeHTML(item.updatedBy || "—")}
+        </div>
+
+        <button onclick="saveQualityWeight(${item.id})">
+          Save weight
+        </button>
+      </article>
+    `;
+    }).join("");
 }
 
 function renderParameters(readings) {
@@ -1160,5 +1256,7 @@ window.canManageSetpoints = canManageSetpoints;
 window.canViewHistory = canViewHistory;
 window.canViewAnomalies = canViewAnomalies;
 window.canManageUsers = canManageUsers;
+window.canViewQualityWeights = canViewQualityWeights;
+window.saveQualityWeight = saveQualityWeight;
 
 startDashboard();

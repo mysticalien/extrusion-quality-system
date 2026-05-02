@@ -1,8 +1,9 @@
 package analytics
 
 import (
-	"extrusion-quality-system/internal/domain"
 	"time"
+
+	"extrusion-quality-system/internal/domain"
 )
 
 const (
@@ -12,24 +13,35 @@ const (
 )
 
 // CalculateQualityIndex calculates the current extrusion quality index
-// based on active and acknowledged alert events.
+// based on active and acknowledged alert and anomaly events.
+//
+// Parameter weights affect parameter penalties:
+// a parameter with a higher weight decreases quality index stronger.
 func CalculateQualityIndex(
 	activeAlerts []domain.AlertEvent,
+	qualityWeights QualityWeights,
 	anomalyGroups ...[]domain.AnomalyEvent,
 ) domain.QualityIndex {
 	var parameterPenalty float64
 	var anomalyPenalty float64
+
+	if qualityWeights == nil {
+		qualityWeights = DefaultQualityWeights()
+	}
 
 	for _, alert := range activeAlerts {
 		if !isOpenStatus(alert.Status) {
 			continue
 		}
 
+		weight := qualityWeights.WeightFor(alert.ParameterType)
+
 		switch alert.Level {
 		case domain.AlertLevelWarning:
-			parameterPenalty += 15
+			parameterPenalty += warningAlertPenalty * weight
+
 		case domain.AlertLevelCritical:
-			parameterPenalty += 30
+			parameterPenalty += criticalAlertPenalty * weight
 		}
 	}
 
@@ -42,22 +54,24 @@ func CalculateQualityIndex(
 			switch anomaly.Type {
 			case domain.AnomalyTypeJump:
 				anomalyPenalty += 10
+
 			case domain.AnomalyTypeDrift:
 				anomalyPenalty += 15
+
 			case domain.AnomalyTypeCombinedRisk:
 				anomalyPenalty += 25
 			}
 		}
 	}
 
-	value := 100 - parameterPenalty - anomalyPenalty
+	value := baseQualityIndex - parameterPenalty - anomalyPenalty
 
 	if value < 0 {
 		value = 0
 	}
 
-	if value > 100 {
-		value = 100
+	if value > baseQualityIndex {
+		value = baseQualityIndex
 	}
 
 	return domain.QualityIndex{

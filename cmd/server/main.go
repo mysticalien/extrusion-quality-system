@@ -68,6 +68,7 @@ func main() {
 	qualityRepository := storage.NewPostgresQualityRepository(pool)
 	setpointRepository := storage.NewPostgresSetpointRepository(pool)
 	anomalyRepository := storage.NewPostgresAnomalyRepository(pool)
+	qualityWeightRepository := storage.NewPostgresQualityWeightRepository(pool)
 
 	userRepository := storage.NewPostgresUserRepository(pool)
 
@@ -112,6 +113,7 @@ func main() {
 		qualityRepository,
 		setpointRepository,
 		anomalyRepository,
+		ingestion.WithQualityWeightRepository(qualityWeightRepository),
 	)
 
 	telemetryHandler := httphandler.NewTelemetryHandlerWithService(
@@ -125,6 +127,7 @@ func main() {
 
 	eventHandler := httphandler.NewEventHandler(logger, alertRepository)
 	qualityHandler := httphandler.NewQualityHandler(logger, qualityRepository)
+	qualityWeightHandler := httphandler.NewQualityWeightHandler(qualityWeightRepository)
 	anomalyHandler := httphandler.NewAnomalyHandler(logger, anomalyRepository)
 
 	logger.Info(
@@ -165,7 +168,7 @@ func main() {
 	mux.HandleFunc("/api/login", authHandler.Login)
 	mux.HandleFunc("/api/me", protected(authHandler.Me))
 	mux.HandleFunc("/api/me/change-password", protected(authHandler.ChangePassword))
-	
+
 	mux.HandleFunc("/api/users", roles(
 		userHandler.ListCreate,
 		domain.UserRoleAdmin,
@@ -209,6 +212,18 @@ func main() {
 	mux.HandleFunc("/api/quality/latest", roles(
 		qualityHandler.Latest,
 		domain.UserRoleOperator,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
+
+	mux.HandleFunc("/api/quality/weights", roles(
+		qualityWeightHandler.List,
+		domain.UserRoleTechnologist,
+		domain.UserRoleAdmin,
+	))
+
+	mux.HandleFunc("/api/quality/weights/", roles(
+		qualityWeightHandler.Update,
 		domain.UserRoleTechnologist,
 		domain.UserRoleAdmin,
 	))
@@ -263,74 +278,5 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		logger.Error("server failed to start", "error", err)
 		os.Exit(1)
-	}
-}
-
-func defaultSetpoints() map[domain.ParameterType]domain.Setpoint {
-	return map[domain.ParameterType]domain.Setpoint{
-		domain.ParameterPressure: {
-			ParameterType: domain.ParameterPressure,
-			Unit:          domain.UnitBar,
-			WarningMin:    30,
-			NormalMin:     40,
-			NormalMax:     75,
-			WarningMax:    90,
-		},
-		domain.ParameterMoisture: {
-			ParameterType: domain.ParameterMoisture,
-			Unit:          domain.UnitPercent,
-			WarningMin:    20,
-			NormalMin:     22,
-			NormalMax:     28,
-			WarningMax:    30,
-		},
-		domain.ParameterBarrelTemperatureZone1: {
-			ParameterType: domain.ParameterBarrelTemperatureZone1,
-			Unit:          domain.UnitCelsius,
-			WarningMin:    80,
-			NormalMin:     90,
-			NormalMax:     120,
-			WarningMax:    130,
-		},
-		domain.ParameterBarrelTemperatureZone2: {
-			ParameterType: domain.ParameterBarrelTemperatureZone2,
-			Unit:          domain.UnitCelsius,
-			WarningMin:    90,
-			NormalMin:     100,
-			NormalMax:     140,
-			WarningMax:    150,
-		},
-		domain.ParameterBarrelTemperatureZone3: {
-			ParameterType: domain.ParameterBarrelTemperatureZone3,
-			Unit:          domain.UnitCelsius,
-			WarningMin:    100,
-			NormalMin:     110,
-			NormalMax:     150,
-			WarningMax:    160,
-		},
-		domain.ParameterScrewSpeed: {
-			ParameterType: domain.ParameterScrewSpeed,
-			Unit:          domain.UnitRPM,
-			WarningMin:    150,
-			NormalMin:     200,
-			NormalMax:     450,
-			WarningMax:    500,
-		},
-		domain.ParameterDriveLoad: {
-			ParameterType: domain.ParameterDriveLoad,
-			Unit:          domain.UnitPercent,
-			WarningMin:    30,
-			NormalMin:     40,
-			NormalMax:     80,
-			WarningMax:    90,
-		},
-		domain.ParameterOutletTemperature: {
-			ParameterType: domain.ParameterOutletTemperature,
-			Unit:          domain.UnitCelsius,
-			WarningMin:    80,
-			NormalMin:     90,
-			NormalMax:     130,
-			WarningMax:    140,
-		},
 	}
 }

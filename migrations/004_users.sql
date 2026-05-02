@@ -1,3 +1,6 @@
+-- +goose Up
+-- +goose StatementBegin
+
 CREATE TABLE IF NOT EXISTS users (
                                      id BIGSERIAL PRIMARY KEY,
                                      username TEXT NOT NULL UNIQUE,
@@ -13,34 +16,11 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_username
     ON users (username);
 
-INSERT INTO users (
-    username,
-    password_hash,
-    role,
-    is_active
-)
-VALUES
-    (
-        'operator',
-        '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
-        'operator',
-        true
-    ),
-    (
-        'technologist',
-        '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
-        'technologist',
-        true
-    ),
-    (
-        'admin',
-        '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
-        'admin',
-        true
-    )
-ON CONFLICT (username) DO UPDATE
-    SET
-        password_hash = EXCLUDED.password_hash,
-        role = EXCLUDED.role,
-        is_active = EXCLUDED.is_active,
-        updated_at = now();
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+
+DROP TABLE IF EXISTS users;
+
+-- +goose StatementEnd

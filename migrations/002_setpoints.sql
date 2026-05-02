@@ -1,3 +1,6 @@
+-- +goose Up
+-- +goose StatementBegin
+
 CREATE TABLE IF NOT EXISTS setpoints (
                                          id BIGSERIAL PRIMARY KEY,
                                          parameter_type TEXT NOT NULL UNIQUE,
@@ -55,3 +58,12 @@ ON CONFLICT (parameter_type) DO UPDATE
 
 CREATE INDEX IF NOT EXISTS idx_setpoints_parameter_type
     ON setpoints (parameter_type);
+
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+
+DROP TABLE IF EXISTS setpoints;
+
+-- +goose StatementEnd

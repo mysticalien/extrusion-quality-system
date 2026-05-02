@@ -1,3 +1,6 @@
+-- +goose Up
+-- +goose StatementBegin
+
 CREATE TABLE IF NOT EXISTS anomaly_events (
                                               id BIGSERIAL PRIMARY KEY,
 
@@ -24,3 +27,12 @@ CREATE INDEX IF NOT EXISTS idx_anomaly_events_status_created_at
 
 CREATE INDEX IF NOT EXISTS idx_anomaly_events_type_parameter_status
     ON anomaly_events (type, parameter_type, status);
+
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+
+DROP TABLE IF EXISTS anomaly_events;
+
+-- +goose StatementEnd

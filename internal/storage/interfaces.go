@@ -92,3 +92,13 @@ type UserRepository interface {
 	UpdatePassword(ctx context.Context, id domain.UserID, passwordHash string) (domain.User, bool, error)
 	SetActive(ctx context.Context, id domain.UserID, isActive bool) (domain.User, bool, error)
 }
+
+type QualityWeightRepository interface {
+	List(ctx context.Context) ([]domain.QualityWeight, error)
+	Update(
+		ctx context.Context,
+		id domain.QualityWeightID,
+		update domain.QualityWeightUpdate,
+		updatedBy string,
+	) (domain.QualityWeight, bool, error)
+}

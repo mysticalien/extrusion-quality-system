@@ -1,3 +1,6 @@
+-- +goose Up
+-- +goose StatementBegin
+
 CREATE TABLE IF NOT EXISTS telemetry_readings (
                                                   id BIGSERIAL PRIMARY KEY,
                                                   parameter_type TEXT NOT NULL,
@@ -40,3 +43,14 @@ CREATE TABLE IF NOT EXISTS quality_index_values (
 
 CREATE INDEX IF NOT EXISTS idx_quality_index_values_calculated_at
     ON quality_index_values (calculated_at DESC);
+
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+
+DROP TABLE IF EXISTS quality_index_values;
+DROP TABLE IF EXISTS alert_events;
+DROP TABLE IF EXISTS telemetry_readings;
+
+-- +goose StatementEnd

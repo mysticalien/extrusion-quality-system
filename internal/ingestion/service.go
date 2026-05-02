@@ -12,6 +12,20 @@ import (
 	"time"
 )
 
+type Option func(*Service)
+
+func WithQualityWeights(weights analytics.QualityWeights) Option {
+	return func(service *Service) {
+		service.qualityWeights = weights
+	}
+}
+
+func WithQualityWeightRepository(repository storage.QualityWeightRepository) Option {
+	return func(service *Service) {
+		service.qualityWeightRepository = repository
+	}
+}
+
 // TelemetryInput describes telemetry data received from HTTP or MQTT.
 type TelemetryInput struct {
 	ParameterType domain.ParameterType `json:"parameterType"`
@@ -56,13 +70,15 @@ func IsValidationError(err error) bool {
 
 // Service processes telemetry from different transports.
 type Service struct {
-	logger              *slog.Logger
-	telemetryRepository storage.TelemetryRepository
-	alertRepository     storage.AlertRepository
-	qualityRepository   storage.QualityRepository
-	setpointRepository  storage.SetpointRepository
-	anomalyRepository   storage.AnomalyRepository
-	anomalyDetector     *anomalies.Detector
+	logger                  *slog.Logger
+	telemetryRepository     storage.TelemetryRepository
+	alertRepository         storage.AlertRepository
+	qualityRepository       storage.QualityRepository
+	setpointRepository      storage.SetpointRepository
+	anomalyRepository       storage.AnomalyRepository
+	anomalyDetector         *anomalies.Detector
+	qualityWeightRepository storage.QualityWeightRepository
+	qualityWeights          analytics.QualityWeights
 }
 
 // NewService creates telemetry ingestion service.
@@ -72,16 +88,13 @@ func NewService(
 	alertRepository storage.AlertRepository,
 	qualityRepository storage.QualityRepository,
 	setpointSource any,
-	anomalyRepositories ...storage.AnomalyRepository,
+	optionalArgs ...any,
 ) *Service {
 	setpointRepository := resolveSetpointRepository(setpointSource)
 
 	anomalyRepository := storage.AnomalyRepository(storage.NewMemoryAnomalyRepository())
-	if len(anomalyRepositories) > 0 && anomalyRepositories[0] != nil {
-		anomalyRepository = anomalyRepositories[0]
-	}
 
-	return &Service{
+	service := &Service{
 		logger:              logger,
 		telemetryRepository: telemetryRepository,
 		alertRepository:     alertRepository,
@@ -89,7 +102,26 @@ func NewService(
 		setpointRepository:  setpointRepository,
 		anomalyRepository:   anomalyRepository,
 		anomalyDetector:     anomalies.NewDetector(telemetryRepository),
+		qualityWeights:      analytics.DefaultQualityWeights(),
 	}
+
+	for _, arg := range optionalArgs {
+		switch value := arg.(type) {
+		case storage.AnomalyRepository:
+			if value != nil {
+				service.anomalyRepository = value
+			}
+		case storage.QualityWeightRepository:
+			if value != nil {
+				service.qualityWeightRepository = value
+			}
+
+		case Option:
+			value(service)
+		}
+	}
+
+	return service
 }
 
 func resolveSetpointRepository(setpointSource any) storage.SetpointRepository {
@@ -182,8 +214,16 @@ func (s *Service) Process(ctx context.Context, input TelemetryInput) (TelemetryR
 		return TelemetryResult{}, fmt.Errorf("load active anomalies: %w", err)
 	}
 
-	qualityIndex := analytics.CalculateQualityIndex(activeAlerts, activeAnomalies)
+	qualityWeights, err := s.loadQualityWeights(ctx)
+	if err != nil {
+		return TelemetryResult{}, err
+	}
 
+	qualityIndex := analytics.CalculateQualityIndex(
+		activeAlerts,
+		qualityWeights,
+		activeAnomalies,
+	)
 	qualityIndex, err = s.qualityRepository.Save(ctx, qualityIndex)
 	if err != nil {
 		return TelemetryResult{}, fmt.Errorf("save quality index: %w", err)
@@ -398,4 +438,21 @@ func (s *Service) createOrUpdateOpenAnomaly(
 
 func anomalyKey(anomalyType domain.AnomalyType, parameterType domain.ParameterType) string {
 	return string(anomalyType) + ":" + string(parameterType)
+}
+
+func (s *Service) loadQualityWeights(ctx context.Context) (analytics.QualityWeights, error) {
+	if s.qualityWeightRepository == nil {
+		return s.qualityWeights, nil
+	}
+
+	items, err := s.qualityWeightRepository.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load quality weights: %w", err)
+	}
+
+	if len(items) == 0 {
+		return s.qualityWeights, nil
+	}
+
+	return analytics.QualityWeightsFromDomain(items), nil
 }

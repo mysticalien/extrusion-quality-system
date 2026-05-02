@@ -59,3 +59,26 @@ type SetpointRepository interface {
 		update domain.SetpointUpdate,
 	) (domain.Setpoint, bool, error)
 }
+
+type AnomalyRepository interface {
+	Create(ctx context.Context, anomaly domain.AnomalyEvent) (domain.AnomalyEvent, error)
+	All(ctx context.Context) ([]domain.AnomalyEvent, error)
+	Active(ctx context.Context) ([]domain.AnomalyEvent, error)
+
+	FindOpenByTypeAndParameter(
+		ctx context.Context,
+		anomalyType domain.AnomalyType,
+		parameterType domain.ParameterType,
+	) (domain.AnomalyEvent, bool, error)
+
+	UpdateOpen(
+		ctx context.Context,
+		anomaly domain.AnomalyEvent,
+	) (domain.AnomalyEvent, bool, error)
+
+	ResolveOpenByTypeAndParameter(
+		ctx context.Context,
+		anomalyType domain.AnomalyType,
+		parameterType domain.ParameterType,
+	) (int64, error)
+}

@@ -32,6 +32,7 @@ func NewTelemetryHandler(
 	setpoints []domain.Setpoint,
 ) *TelemetryHandler {
 	setpointRepository := storage.NewMemorySetpointRepository(setpoints)
+	anomalyRepository := storage.NewMemoryAnomalyRepository()
 
 	ingestionService := ingestion.NewService(
 		logger,
@@ -39,6 +40,7 @@ func NewTelemetryHandler(
 		alertRepository,
 		qualityRepository,
 		setpointRepository,
+		anomalyRepository,
 	)
 
 	return NewTelemetryHandlerWithService(

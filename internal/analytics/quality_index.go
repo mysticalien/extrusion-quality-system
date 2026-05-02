@@ -13,41 +13,63 @@ const (
 
 // CalculateQualityIndex calculates the current extrusion quality index
 // based on active and acknowledged alert events.
-func CalculateQualityIndex(alerts []domain.AlertEvent) domain.QualityIndex {
+func CalculateQualityIndex(
+	activeAlerts []domain.AlertEvent,
+	anomalyGroups ...[]domain.AnomalyEvent,
+) domain.QualityIndex {
 	var parameterPenalty float64
+	var anomalyPenalty float64
 
-	for _, alert := range alerts {
-		if alert.Status == domain.AlertStatusResolved {
+	for _, alert := range activeAlerts {
+		if !isOpenStatus(alert.Status) {
 			continue
 		}
 
 		switch alert.Level {
 		case domain.AlertLevelWarning:
-			parameterPenalty += warningAlertPenalty
+			parameterPenalty += 15
 		case domain.AlertLevelCritical:
-			parameterPenalty += criticalAlertPenalty
+			parameterPenalty += 30
 		}
 	}
 
-	value := clampQualityIndex(baseQualityIndex - parameterPenalty)
+	if len(anomalyGroups) > 0 {
+		for _, anomaly := range anomalyGroups[0] {
+			if !isOpenStatus(anomaly.Status) {
+				continue
+			}
+
+			switch anomaly.Type {
+			case domain.AnomalyTypeJump:
+				anomalyPenalty += 10
+			case domain.AnomalyTypeDrift:
+				anomalyPenalty += 15
+			case domain.AnomalyTypeCombinedRisk:
+				anomalyPenalty += 25
+			}
+		}
+	}
+
+	value := 100 - parameterPenalty - anomalyPenalty
+
+	if value < 0 {
+		value = 0
+	}
+
+	if value > 100 {
+		value = 100
+	}
 
 	return domain.QualityIndex{
 		Value:            value,
 		State:            domain.QualityStateFromValue(value),
 		ParameterPenalty: parameterPenalty,
-		AnomalyPenalty:   0,
+		AnomalyPenalty:   anomalyPenalty,
 		CalculatedAt:     time.Now().UTC(),
 	}
 }
 
-func clampQualityIndex(value float64) float64 {
-	if value < 0 {
-		return 0
-	}
-
-	if value > 100 {
-		return 100
-	}
-
-	return value
+func isOpenStatus(status domain.AlertStatus) bool {
+	return status == domain.AlertStatusActive ||
+		status == domain.AlertStatusAcknowledged
 }

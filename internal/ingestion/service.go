@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"extrusion-quality-system/internal/analytics"
+	"extrusion-quality-system/internal/anomalies"
 	"extrusion-quality-system/internal/domain"
 	"extrusion-quality-system/internal/storage"
 	"fmt"
@@ -60,6 +61,8 @@ type Service struct {
 	alertRepository     storage.AlertRepository
 	qualityRepository   storage.QualityRepository
 	setpointRepository  storage.SetpointRepository
+	anomalyRepository   storage.AnomalyRepository
+	anomalyDetector     *anomalies.Detector
 }
 
 // NewService creates telemetry ingestion service.
@@ -68,14 +71,43 @@ func NewService(
 	telemetryRepository storage.TelemetryRepository,
 	alertRepository storage.AlertRepository,
 	qualityRepository storage.QualityRepository,
-	setpointRepository storage.SetpointRepository,
+	setpointSource any,
+	anomalyRepositories ...storage.AnomalyRepository,
 ) *Service {
+	setpointRepository := resolveSetpointRepository(setpointSource)
+
+	anomalyRepository := storage.AnomalyRepository(storage.NewMemoryAnomalyRepository())
+	if len(anomalyRepositories) > 0 && anomalyRepositories[0] != nil {
+		anomalyRepository = anomalyRepositories[0]
+	}
+
 	return &Service{
 		logger:              logger,
 		telemetryRepository: telemetryRepository,
 		alertRepository:     alertRepository,
 		qualityRepository:   qualityRepository,
 		setpointRepository:  setpointRepository,
+		anomalyRepository:   anomalyRepository,
+		anomalyDetector:     anomalies.NewDetector(telemetryRepository),
+	}
+}
+
+func resolveSetpointRepository(setpointSource any) storage.SetpointRepository {
+	switch value := setpointSource.(type) {
+	case storage.SetpointRepository:
+		return value
+
+	case map[domain.ParameterType]domain.Setpoint:
+		setpoints := make([]domain.Setpoint, 0, len(value))
+
+		for _, setpoint := range value {
+			setpoints = append(setpoints, setpoint)
+		}
+
+		return storage.NewMemorySetpointRepository(setpoints)
+
+	default:
+		return storage.NewMemorySetpointRepository(nil)
 	}
 }
 
@@ -136,7 +168,21 @@ func (s *Service) Process(ctx context.Context, input TelemetryInput) (TelemetryR
 		return TelemetryResult{}, fmt.Errorf("load active alerts: %w", err)
 	}
 
-	qualityIndex := analytics.CalculateQualityIndex(activeAlerts)
+	detectedAnomalies, err := s.anomalyDetector.Detect(ctx, reading)
+	if err != nil {
+		return TelemetryResult{}, fmt.Errorf("detect anomalies: %w", err)
+	}
+
+	if err := s.syncAnomalies(ctx, reading.ParameterType, detectedAnomalies); err != nil {
+		return TelemetryResult{}, err
+	}
+
+	activeAnomalies, err := s.anomalyRepository.Active(ctx)
+	if err != nil {
+		return TelemetryResult{}, fmt.Errorf("load active anomalies: %w", err)
+	}
+
+	qualityIndex := analytics.CalculateQualityIndex(activeAlerts, activeAnomalies)
 
 	qualityIndex, err = s.qualityRepository.Save(ctx, qualityIndex)
 	if err != nil {
@@ -265,4 +311,91 @@ func buildAlertMessage(reading domain.TelemetryReading, level domain.AlertLevel)
 		reading.Value,
 		reading.Unit,
 	)
+}
+
+func (s *Service) syncAnomalies(
+	ctx context.Context,
+	currentParameter domain.ParameterType,
+	detectedAnomalies []domain.AnomalyEvent,
+) error {
+	detected := make(map[string]struct{})
+
+	for _, anomaly := range detectedAnomalies {
+		key := anomalyKey(anomaly.Type, anomaly.ParameterType)
+		detected[key] = struct{}{}
+
+		if _, err := s.createOrUpdateOpenAnomaly(ctx, anomaly); err != nil {
+			return err
+		}
+	}
+
+	if _, ok := detected[anomalyKey(domain.AnomalyTypeJump, currentParameter)]; !ok {
+		if _, err := s.anomalyRepository.ResolveOpenByTypeAndParameter(
+			ctx,
+			domain.AnomalyTypeJump,
+			currentParameter,
+		); err != nil {
+			return fmt.Errorf("resolve jump anomaly: %w", err)
+		}
+	}
+
+	if _, ok := detected[anomalyKey(domain.AnomalyTypeDrift, currentParameter)]; !ok {
+		if _, err := s.anomalyRepository.ResolveOpenByTypeAndParameter(
+			ctx,
+			domain.AnomalyTypeDrift,
+			currentParameter,
+		); err != nil {
+			return fmt.Errorf("resolve drift anomaly: %w", err)
+		}
+	}
+
+	if _, ok := detected[anomalyKey(domain.AnomalyTypeCombinedRisk, domain.ParameterProcessRisk)]; !ok {
+		if _, err := s.anomalyRepository.ResolveOpenByTypeAndParameter(
+			ctx,
+			domain.AnomalyTypeCombinedRisk,
+			domain.ParameterProcessRisk,
+		); err != nil {
+			return fmt.Errorf("resolve combined risk anomaly: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) createOrUpdateOpenAnomaly(
+	ctx context.Context,
+	anomaly domain.AnomalyEvent,
+) (domain.AnomalyEvent, error) {
+	existing, found, err := s.anomalyRepository.FindOpenByTypeAndParameter(
+		ctx,
+		anomaly.Type,
+		anomaly.ParameterType,
+	)
+	if err != nil {
+		return domain.AnomalyEvent{}, fmt.Errorf("find open anomaly: %w", err)
+	}
+
+	if found {
+		anomaly.ID = existing.ID
+
+		updated, ok, err := s.anomalyRepository.UpdateOpen(ctx, anomaly)
+		if err != nil {
+			return domain.AnomalyEvent{}, fmt.Errorf("update open anomaly: %w", err)
+		}
+
+		if ok {
+			return updated, nil
+		}
+	}
+
+	created, err := s.anomalyRepository.Create(ctx, anomaly)
+	if err != nil {
+		return domain.AnomalyEvent{}, fmt.Errorf("create anomaly: %w", err)
+	}
+
+	return created, nil
+}
+
+func anomalyKey(anomalyType domain.AnomalyType, parameterType domain.ParameterType) string {
+	return string(anomalyType) + ":" + string(parameterType)
 }

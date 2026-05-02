@@ -66,6 +66,7 @@ func main() {
 	alertRepository := storage.NewPostgresAlertRepository(pool)
 	qualityRepository := storage.NewPostgresQualityRepository(pool)
 	setpointRepository := storage.NewPostgresSetpointRepository(pool)
+	anomalyRepository := storage.NewPostgresAnomalyRepository(pool)
 
 	ingestionService := ingestion.NewService(
 		logger,
@@ -73,6 +74,7 @@ func main() {
 		alertRepository,
 		qualityRepository,
 		setpointRepository,
+		anomalyRepository,
 	)
 
 	telemetryHandler := httphandler.NewTelemetryHandlerWithService(
@@ -86,6 +88,7 @@ func main() {
 
 	eventHandler := httphandler.NewEventHandler(logger, alertRepository)
 	qualityHandler := httphandler.NewQualityHandler(logger, qualityRepository)
+	anomalyHandler := httphandler.NewAnomalyHandler(logger, anomalyRepository)
 
 	logger.Info(
 		"mqtt config loaded",
@@ -135,6 +138,9 @@ func main() {
 
 	mux.HandleFunc("/api/setpoints", setpointHandler.List)
 	mux.HandleFunc("/api/setpoints/", setpointHandler.Update)
+
+	mux.HandleFunc("/api/anomalies", anomalyHandler.List)
+	mux.HandleFunc("/api/anomalies/active", anomalyHandler.Active)
 
 	server := &nethttp.Server{
 		Addr:              cfg.Server.Addr,

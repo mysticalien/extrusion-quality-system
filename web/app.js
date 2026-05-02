@@ -228,6 +228,40 @@ function renderEvents(events) {
     }).join("");
 }
 
+
+function renderAnomalies(anomalies) {
+    const container = document.getElementById("anomalies");
+
+    if (!container) {
+        return;
+    }
+
+    if (!anomalies || anomalies.length === 0) {
+        container.innerHTML = `<div class="empty">No active anomalies</div>`;
+        return;
+    }
+
+    container.innerHTML = anomalies.map((anomaly) => {
+        return `
+      <article class="event-card">
+        <div class="event-header">
+          <div class="event-level">${anomaly.level} · ${anomaly.type}</div>
+          <div class="event-status">${anomaly.status}</div>
+        </div>
+
+        <div class="event-message">${anomaly.message}</div>
+
+        <div class="event-meta">
+          Parameter: ${anomaly.parameterType}<br />
+          Observed at: ${formatDate(anomaly.observedAt)}<br />
+          Updated at: ${formatDate(anomaly.updatedAt)}<br />
+          Source: ${anomaly.sourceId}
+        </div>
+      </article>
+    `;
+    }).join("");
+}
+
 function renderHistoryList(readings) {
     const container = document.getElementById("history");
 
@@ -383,20 +417,21 @@ async function acknowledgeEvent(eventId) {
         showError(error.message);
     }
 }
-
 async function refreshDashboard() {
     try {
         hideError();
 
-        const [quality, telemetry, events] = await Promise.all([
+        const [quality, telemetry, events, anomalies] = await Promise.all([
             fetchJSON("/api/quality/latest"),
             fetchJSON("/api/telemetry/latest"),
-            fetchJSON("/api/events/active")
+            fetchJSON("/api/events/active"),
+            fetchJSON("/api/anomalies/active")
         ]);
 
         renderQuality(quality);
         renderParameters(telemetry);
         renderEvents(events);
+        renderAnomalies(anomalies);
     } catch (error) {
         showError(error.message);
     }

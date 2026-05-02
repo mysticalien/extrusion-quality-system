@@ -378,22 +378,26 @@ func newTestTelemetryHandler() (
 	alertRepository := storage.NewMemoryAlertRepository()
 	qualityRepository := storage.NewMemoryQualityRepository()
 
-	setpoints := map[domain.ParameterType]domain.Setpoint{
-		domain.ParameterPressure: {
+	setpoints := []domain.Setpoint{
+		{
 			ParameterType: domain.ParameterPressure,
 			Unit:          domain.UnitBar,
-			WarningMin:    30,
+			CriticalMin:   30,
+			WarningMin:    35,
 			NormalMin:     40,
 			NormalMax:     75,
 			WarningMax:    90,
+			CriticalMax:   95,
 		},
-		domain.ParameterMoisture: {
+		{
 			ParameterType: domain.ParameterMoisture,
 			Unit:          domain.UnitPercent,
+			CriticalMin:   15,
 			WarningMin:    20,
 			NormalMin:     22,
 			NormalMax:     28,
 			WarningMax:    30,
+			CriticalMax:   35,
 		},
 	}
 

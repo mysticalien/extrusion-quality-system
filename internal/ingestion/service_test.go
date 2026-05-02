@@ -367,3 +367,42 @@ func TestServiceProcessResolvesOpenAlertWhenParameterReturnsToNormal(t *testing.
 		t.Fatalf("expected quality index 100, got %.2f", qualityIndex.Value)
 	}
 }
+
+func TestServiceProcessAppliesAnomalyPenalty(t *testing.T) {
+	ctx := context.Background()
+	service, _, _, qualityRepository := newTestService()
+
+	baseTime := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+
+	values := []float64{65, 67, 69, 71, 73}
+
+	for index, value := range values {
+		_, err := service.Process(ctx, TelemetryInput{
+			ParameterType: domain.ParameterPressure,
+			Value:         value,
+			Unit:          domain.UnitBar,
+			SourceID:      domain.SourceID("test-simulator"),
+			MeasuredAt:    baseTime.Add(time.Duration(index) * time.Second),
+		})
+		if err != nil {
+			t.Fatalf("process telemetry %d: %v", index, err)
+		}
+	}
+
+	qualityIndex, found, err := qualityRepository.Latest(ctx)
+	if err != nil {
+		t.Fatalf("load latest quality index: %v", err)
+	}
+
+	if !found {
+		t.Fatalf("expected quality index")
+	}
+
+	if qualityIndex.AnomalyPenalty == 0 {
+		t.Fatalf("expected anomaly penalty to be greater than 0")
+	}
+
+	if qualityIndex.Value >= 100 {
+		t.Fatalf("expected quality index to be reduced by anomaly, got %.2f", qualityIndex.Value)
+	}
+}

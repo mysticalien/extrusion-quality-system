@@ -133,3 +133,68 @@ func TestCalculateQualityIndex(t *testing.T) {
 		})
 	}
 }
+
+func TestCalculateQualityIndexWithAnomalyPenalty(t *testing.T) {
+	activeAlerts := []domain.AlertEvent{
+		{
+			Level:  domain.AlertLevelWarning,
+			Status: domain.AlertStatusActive,
+		},
+	}
+
+	activeAnomalies := []domain.AnomalyEvent{
+		{
+			Type:   domain.AnomalyTypeJump,
+			Status: domain.AlertStatusActive,
+		},
+		{
+			Type:   domain.AnomalyTypeCombinedRisk,
+			Status: domain.AlertStatusActive,
+		},
+	}
+
+	index := CalculateQualityIndex(activeAlerts, activeAnomalies)
+
+	expectedValue := float64(50)
+
+	if index.Value != expectedValue {
+		t.Fatalf("expected quality index %.2f, got %.2f", expectedValue, index.Value)
+	}
+
+	if index.ParameterPenalty != 15 {
+		t.Fatalf("expected parameter penalty 15, got %.2f", index.ParameterPenalty)
+	}
+
+	if index.AnomalyPenalty != 35 {
+		t.Fatalf("expected anomaly penalty 35, got %.2f", index.AnomalyPenalty)
+	}
+
+	if index.State != domain.QualityStateUnstable {
+		t.Fatalf("expected state %q, got %q", domain.QualityStateUnstable, index.State)
+	}
+}
+
+func TestCalculateQualityIndexIgnoresResolvedAnomalies(t *testing.T) {
+	activeAlerts := []domain.AlertEvent{}
+
+	anomalies := []domain.AnomalyEvent{
+		{
+			Type:   domain.AnomalyTypeJump,
+			Status: domain.AlertStatusResolved,
+		},
+		{
+			Type:   domain.AnomalyTypeDrift,
+			Status: domain.AlertStatusResolved,
+		},
+	}
+
+	index := CalculateQualityIndex(activeAlerts, anomalies)
+
+	if index.Value != 100 {
+		t.Fatalf("expected quality index 100, got %.2f", index.Value)
+	}
+
+	if index.AnomalyPenalty != 0 {
+		t.Fatalf("expected anomaly penalty 0, got %.2f", index.AnomalyPenalty)
+	}
+}

@@ -61,7 +61,7 @@ type MQTTConfig struct {
 }
 
 type SimulatorConfig struct {
-	Mode           string        `env:"SIMULATOR_MODE" env-default:"http"`
+	Mode           string        `env:"SIMULATOR_MODE" env-default:"normal"`
 	Period         time.Duration `env:"SIMULATOR_INTERVAL" env-default:"2s"`
 	RequestTimeout time.Duration `env:"SIMULATOR_REQUEST_TIMEOUT" env-default:"10s"`
 

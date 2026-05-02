@@ -20,7 +20,7 @@ type TelemetryHandler struct {
 	logger              *slog.Logger
 	ingestionService    *ingestion.Service
 	telemetryRepository storage.TelemetryRepository
-	setpoints           map[domain.ParameterType]domain.Setpoint
+	setpointRepository  storage.SetpointRepository
 }
 
 // NewTelemetryHandler creates a telemetry HTTP handler.
@@ -29,36 +29,38 @@ func NewTelemetryHandler(
 	telemetryRepository storage.TelemetryRepository,
 	alertRepository storage.AlertRepository,
 	qualityRepository storage.QualityRepository,
-	setpoints map[domain.ParameterType]domain.Setpoint,
+	setpoints []domain.Setpoint,
 ) *TelemetryHandler {
+	setpointRepository := storage.NewMemorySetpointRepository(setpoints)
+
 	ingestionService := ingestion.NewService(
 		logger,
 		telemetryRepository,
 		alertRepository,
 		qualityRepository,
-		setpoints,
+		setpointRepository,
 	)
 
 	return NewTelemetryHandlerWithService(
 		logger,
 		ingestionService,
 		telemetryRepository,
-		setpoints,
+		setpointRepository,
 	)
 }
 
 // NewTelemetryHandlerWithService creates telemetry HTTP handler with existing ingestion service.
 func NewTelemetryHandlerWithService(
 	logger *slog.Logger,
-	ingestionService *ingestion.Service,
+	service *ingestion.Service,
 	telemetryRepository storage.TelemetryRepository,
-	setpoints map[domain.ParameterType]domain.Setpoint,
+	setpointRepository storage.SetpointRepository,
 ) *TelemetryHandler {
 	return &TelemetryHandler{
 		logger:              logger,
-		ingestionService:    ingestionService,
+		ingestionService:    service,
 		telemetryRepository: telemetryRepository,
-		setpoints:           setpoints,
+		setpointRepository:  setpointRepository,
 	}
 }
 

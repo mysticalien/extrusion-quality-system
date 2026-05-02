@@ -38,11 +38,16 @@
             gap: 20px;
         }
 
-        .quality-card {
-            padding: 24px;
+        .quality-card,
+        .section {
+            padding: 20px;
             border-radius: 14px;
             background: white;
             box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+        }
+
+        .quality-card {
+            padding: 24px;
         }
 
         .quality-title {
@@ -64,13 +69,6 @@
             font-size: 14px;
             font-weight: 600;
             background: #e5e7eb;
-        }
-
-        .section {
-            padding: 20px;
-            border-radius: 14px;
-            background: white;
-            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
         }
 
         .section h2 {
@@ -109,32 +107,40 @@
             line-height: 1.4;
         }
 
-        .events-list {
+        .events-list,
+        .history-list {
             display: flex;
             flex-direction: column;
             gap: 12px;
         }
 
-        .event-card {
+        .event-card,
+        .history-card {
             padding: 16px;
             border: 1px solid #e5e7eb;
             border-radius: 12px;
             background: #fafafa;
         }
 
-        .event-header {
+        .event-header,
+        .history-header {
             display: flex;
             justify-content: space-between;
             gap: 12px;
             margin-bottom: 8px;
         }
 
-        .event-level {
+        .event-level,
+        .history-value {
             font-weight: 700;
+        }
+
+        .event-level {
             text-transform: uppercase;
         }
 
-        .event-status {
+        .event-status,
+        .history-time {
             font-size: 13px;
             color: #667085;
         }
@@ -144,20 +150,69 @@
             line-height: 1.4;
         }
 
-        .event-meta {
+        .event-meta,
+        .history-meta {
             font-size: 12px;
             color: #667085;
             margin-bottom: 12px;
+            line-height: 1.4;
+        }
+
+        .history-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+            align-items: end;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .checkbox-group {
+            justify-content: center;
+            min-height: 58px;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #1f2933;
+            font-size: 14px;
+        }
+
+        .checkbox-label input {
+            width: auto;
+        }
+
+        label {
+            font-size: 13px;
+            color: #667085;
+        }
+
+        select,
+        input {
+            width: 100%;
+            padding: 9px 10px;
+            border-radius: 8px;
+            border: 1px solid #d0d5dd;
+            background: white;
+            font-size: 14px;
         }
 
         button {
             border: none;
             border-radius: 8px;
-            padding: 8px 12px;
+            padding: 10px 12px;
             cursor: pointer;
             background: #2563eb;
             color: white;
             font-weight: 600;
+            font-size: 14px;
         }
 
         button:disabled {
@@ -179,6 +234,10 @@
             display: none;
         }
 
+        .hidden {
+            display: none;
+        }
+
         .stable {
             background: #dcfce7;
             color: #166534;
@@ -197,6 +256,20 @@
         .critical {
             background: #fee2e2;
             color: #991b1b;
+        }
+
+        .chart-wrapper {
+            margin-bottom: 16px;
+            padding: 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            background: #fafafa;
+        }
+
+        canvas {
+            width: 100%;
+            height: 260px;
+            display: block;
         }
     </style>
 </head>
@@ -225,166 +298,74 @@
         <h2>Active events</h2>
         <div id="events" class="events-list"></div>
     </section>
+
+    <section class="section">
+        <h2>Telemetry history</h2>
+
+        <div class="history-controls">
+            <div class="control-group">
+                <label for="historyParameter">Parameter</label>
+                <select id="historyParameter">
+                    <option value="pressure">Pressure</option>
+                    <option value="moisture">Moisture</option>
+                    <option value="barrel_temperature_zone_1">Barrel temperature zone 1</option>
+                    <option value="barrel_temperature_zone_2">Barrel temperature zone 2</option>
+                    <option value="barrel_temperature_zone_3">Barrel temperature zone 3</option>
+                    <option value="screw_speed">Screw speed</option>
+                    <option value="drive_load">Drive load</option>
+                    <option value="outlet_temperature">Outlet temperature</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="historyRange">Period</label>
+                <select id="historyRange" onchange="updateHistoryRangeControls()">
+                    <option value="last_1h">Last hour</option>
+                    <option value="last_2h">Last 2 hours</option>
+                    <option value="today">Today</option>
+                    <option value="last_2d">Last 2 days</option>
+                    <option value="last_7d">Last 7 days</option>
+                    <option value="custom">Custom range</option>
+                </select>
+            </div>
+
+            <div id="customFromGroup" class="control-group hidden">
+                <label for="historyFrom">From</label>
+                <input id="historyFrom" type="datetime-local" />
+            </div>
+
+            <div id="customToGroup" class="control-group hidden">
+                <label for="historyTo">To</label>
+                <input id="historyTo" type="datetime-local" />
+            </div>
+
+            <div class="control-group">
+                <label for="historyLimit">Limit</label>
+                <input id="historyLimit" type="number" min="1" max="1000" value="200" />
+            </div>
+
+            <div class="control-group">
+                <button id="loadHistoryButton" onclick="loadTelemetryHistory()">Load history</button>
+            </div>
+
+            <div class="control-group checkbox-group">
+                <label class="checkbox-label">
+                    <input id="historyAutoRefresh" type="checkbox" />
+                    Auto-refresh history
+                </label>
+            </div>
+        </div>
+
+        <div class="chart-wrapper">
+            <canvas id="historyChart"></canvas>
+        </div>
+
+        <div id="history" class="history-list">
+            <div class="empty">Select parameter and load history</div>
+        </div>
+    </section>
 </main>
 
-<script>
-    const refreshIntervalMs = 2000;
-
-    const parameterNames = {
-        pressure: "Pressure",
-        moisture: "Moisture",
-        barrel_temperature_zone_1: "Barrel temperature zone 1",
-        barrel_temperature_zone_2: "Barrel temperature zone 2",
-        barrel_temperature_zone_3: "Barrel temperature zone 3",
-        screw_speed: "Screw speed",
-        drive_load: "Drive load",
-        outlet_temperature: "Outlet temperature"
-    };
-
-    function showError(message) {
-        const errorElement = document.getElementById("error");
-        errorElement.textContent = message;
-        errorElement.style.display = "block";
-    }
-
-    function hideError() {
-        const errorElement = document.getElementById("error");
-        errorElement.textContent = "";
-        errorElement.style.display = "none";
-    }
-
-    async function fetchJSON(url, options = {}) {
-        const response = await fetch(url, options);
-
-        if (!response.ok) {
-            const text = await response.text();
-            throw new Error(`${url}: ${response.status} ${text}`);
-        }
-
-        return response.json();
-    }
-
-    function formatDate(value) {
-        if (!value) {
-            return "—";
-        }
-
-        return new Date(value).toLocaleString();
-    }
-
-    function formatNumber(value) {
-        if (typeof value !== "number") {
-            return value;
-        }
-
-        return Number.isInteger(value) ? value.toString() : value.toFixed(2);
-    }
-
-    function renderQuality(quality) {
-        const valueElement = document.getElementById("qualityValue");
-        const stateElement = document.getElementById("qualityState");
-
-        valueElement.textContent = `Quality Index: ${formatNumber(quality.value)}`;
-        stateElement.textContent = quality.state;
-
-        stateElement.className = "quality-state";
-        stateElement.classList.add(quality.state || "unknown");
-    }
-
-    function renderParameters(readings) {
-        const container = document.getElementById("parameters");
-
-        if (!readings || readings.length === 0) {
-            container.innerHTML = `<div class="empty">No telemetry readings yet</div>`;
-            return;
-        }
-
-        container.innerHTML = readings.map((reading) => {
-            const name = parameterNames[reading.parameterType] || reading.parameterType;
-
-            return `
-          <article class="parameter-card">
-            <div class="parameter-name">${name}</div>
-            <div class="parameter-value">${formatNumber(reading.value)} ${reading.unit}</div>
-            <div class="parameter-meta">
-              Source: ${reading.sourceId}<br />
-              Measured at: ${formatDate(reading.measuredAt)}
-            </div>
-          </article>
-        `;
-        }).join("");
-    }
-
-    function renderEvents(events) {
-        const container = document.getElementById("events");
-
-        if (!events || events.length === 0) {
-            container.innerHTML = `<div class="empty">No active events</div>`;
-            return;
-        }
-
-        container.innerHTML = events.map((event) => {
-            const isAcknowledged = event.status === "acknowledged";
-            const buttonText = isAcknowledged ? "Acknowledged" : "Acknowledge";
-            const disabled = isAcknowledged ? "disabled" : "";
-
-            return `
-          <article class="event-card">
-            <div class="event-header">
-              <div class="event-level">${event.level} · ${event.parameterType}</div>
-              <div class="event-status">${event.status}</div>
-            </div>
-
-            <div class="event-message">${event.message}</div>
-
-            <div class="event-meta">
-              Created at: ${formatDate(event.createdAt)}<br />
-              Value: ${formatNumber(event.value)} ${event.unit}<br />
-              Source: ${event.sourceId}
-            </div>
-
-            <button ${disabled} onclick="acknowledgeEvent(${event.id})">
-              ${buttonText}
-            </button>
-          </article>
-        `;
-        }).join("");
-    }
-
-    async function acknowledgeEvent(eventId) {
-        try {
-            hideError();
-
-            await fetchJSON(`/api/events/${eventId}/ack`, {
-                method: "POST"
-            });
-
-            await refreshDashboard();
-        } catch (error) {
-            showError(error.message);
-        }
-    }
-
-    async function refreshDashboard() {
-        try {
-            hideError();
-
-            const [quality, telemetry, events] = await Promise.all([
-                fetchJSON("/api/quality/latest"),
-                fetchJSON("/api/telemetry/latest"),
-                fetchJSON("/api/events/active")
-            ]);
-
-            renderQuality(quality);
-            renderParameters(telemetry);
-            renderEvents(events);
-        } catch (error) {
-            showError(error.message);
-        }
-    }
-
-    refreshDashboard();
-    setInterval(refreshDashboard, refreshIntervalMs);
-</script>
+<script src="/static/app.js"></script>
 </body>
 </html>

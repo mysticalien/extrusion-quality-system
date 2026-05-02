@@ -65,22 +65,24 @@ func main() {
 	telemetryRepository := storage.NewPostgresTelemetryRepository(pool)
 	alertRepository := storage.NewPostgresAlertRepository(pool)
 	qualityRepository := storage.NewPostgresQualityRepository(pool)
-	setpoints := defaultSetpoints()
+	setpointRepository := storage.NewPostgresSetpointRepository(pool)
 
 	ingestionService := ingestion.NewService(
 		logger,
 		telemetryRepository,
 		alertRepository,
 		qualityRepository,
-		setpoints,
+		setpointRepository,
 	)
 
 	telemetryHandler := httphandler.NewTelemetryHandlerWithService(
 		logger,
 		ingestionService,
 		telemetryRepository,
-		setpoints,
+		setpointRepository,
 	)
+
+	setpointHandler := httphandler.NewSetpointHandler(logger, setpointRepository)
 
 	eventHandler := httphandler.NewEventHandler(logger, alertRepository)
 	qualityHandler := httphandler.NewQualityHandler(logger, qualityRepository)
@@ -115,6 +117,8 @@ func main() {
 
 	mux := nethttp.NewServeMux()
 
+	mux.Handle("/static/", nethttp.StripPrefix("/static/", nethttp.FileServer(nethttp.Dir("web"))))
+
 	mux.HandleFunc("/", homeHandler)
 	mux.HandleFunc("/health", healthHandler)
 
@@ -128,6 +132,8 @@ func main() {
 
 	mux.HandleFunc("/api/quality/latest", qualityHandler.Latest)
 	mux.HandleFunc("/api/quality/history", qualityHandler.History)
+
+	mux.HandleFunc("/api/setpoints", setpointHandler.List)
 
 	server := &nethttp.Server{
 		Addr:              cfg.Server.Addr,

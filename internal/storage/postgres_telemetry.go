@@ -118,7 +118,8 @@ func (r *PostgresTelemetryRepository) Latest(ctx context.Context) ([]domain.Tele
 	return scanTelemetryReadings(rows)
 }
 
-// HistoryByParameter returns telemetry readings for one parameter in the given time range.
+// HistoryByParameter returns latest telemetry readings for one parameter in the given time range.
+// It selects the newest records first by limit, then returns them in chronological order for charts.
 func (r *PostgresTelemetryRepository) HistoryByParameter(
 	ctx context.Context,
 	parameterType domain.ParameterType,
@@ -144,12 +145,23 @@ func (r *PostgresTelemetryRepository) HistoryByParameter(
 			source_id,
 			measured_at,
 			created_at
-		FROM telemetry_readings
-		WHERE parameter_type = $1
-		  AND ($2::timestamptz IS NULL OR measured_at >= $2)
-		  AND ($3::timestamptz IS NULL OR measured_at <= $3)
+		FROM (
+			SELECT
+				id,
+				parameter_type,
+				value,
+				unit,
+				source_id,
+				measured_at,
+				created_at
+			FROM telemetry_readings
+			WHERE parameter_type = $1
+			  AND ($2::timestamptz IS NULL OR measured_at >= $2)
+			  AND ($3::timestamptz IS NULL OR measured_at <= $3)
+			ORDER BY measured_at DESC, id DESC
+			LIMIT $4
+		) latest_readings
 		ORDER BY measured_at ASC, id ASC
-		LIMIT $4
 		`,
 		parameterType,
 		nullableTime(from),

@@ -54,7 +54,18 @@ func (h *TelemetryHandler) History(w nethttp.ResponseWriter, r *nethttp.Request)
 	}
 
 	parameterType := domain.ParameterType(rawParameter)
-	if _, ok := h.setpoints[parameterType]; !ok {
+	_, found, err := h.setpointRepository.GetByParameter(r.Context(), parameterType)
+	if err != nil {
+		h.logger.Error(
+			"load setpoint failed",
+			"parameterType", parameterType,
+			"error", err,
+		)
+		writeError(w, nethttp.StatusInternalServerError, "failed to load setpoint")
+		return
+	}
+
+	if !found {
 		writeError(w, nethttp.StatusBadRequest, "unknown parameter")
 		return
 	}

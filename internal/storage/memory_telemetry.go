@@ -78,7 +78,6 @@ func (r *MemoryTelemetryRepository) Latest(_ context.Context) ([]domain.Telemetr
 	return result, nil
 }
 
-// HistoryByParameter returns telemetry readings for one parameter in the given time range.
 func (r *MemoryTelemetryRepository) HistoryByParameter(
 	_ context.Context,
 	parameterType domain.ParameterType,
@@ -93,7 +92,7 @@ func (r *MemoryTelemetryRepository) HistoryByParameter(
 		limit = 100
 	}
 
-	result := make([]domain.TelemetryReading, 0)
+	filtered := make([]domain.TelemetryReading, 0)
 
 	for _, reading := range r.readings {
 		if reading.ParameterType != parameterType {
@@ -108,20 +107,28 @@ func (r *MemoryTelemetryRepository) HistoryByParameter(
 			continue
 		}
 
-		result = append(result, reading)
-
-		if len(result) >= limit {
-			break
-		}
+		filtered = append(filtered, reading)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].MeasuredAt.Equal(result[j].MeasuredAt) {
-			return result[i].ID < result[j].ID
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].MeasuredAt.Equal(filtered[j].MeasuredAt) {
+			return filtered[i].ID > filtered[j].ID
 		}
 
-		return result[i].MeasuredAt.Before(result[j].MeasuredAt)
+		return filtered[i].MeasuredAt.After(filtered[j].MeasuredAt)
 	})
 
-	return result, nil
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].MeasuredAt.Equal(filtered[j].MeasuredAt) {
+			return filtered[i].ID < filtered[j].ID
+		}
+
+		return filtered[i].MeasuredAt.Before(filtered[j].MeasuredAt)
+	})
+
+	return filtered, nil
 }

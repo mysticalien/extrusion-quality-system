@@ -59,7 +59,7 @@ type Service struct {
 	telemetryRepository storage.TelemetryRepository
 	alertRepository     storage.AlertRepository
 	qualityRepository   storage.QualityRepository
-	setpoints           map[domain.ParameterType]domain.Setpoint
+	setpointRepository  storage.SetpointRepository
 }
 
 // NewService creates telemetry ingestion service.
@@ -68,21 +68,21 @@ func NewService(
 	telemetryRepository storage.TelemetryRepository,
 	alertRepository storage.AlertRepository,
 	qualityRepository storage.QualityRepository,
-	setpoints map[domain.ParameterType]domain.Setpoint,
+	setpointRepository storage.SetpointRepository,
 ) *Service {
 	return &Service{
 		logger:              logger,
 		telemetryRepository: telemetryRepository,
 		alertRepository:     alertRepository,
 		qualityRepository:   qualityRepository,
-		setpoints:           setpoints,
+		setpointRepository:  setpointRepository,
 	}
 }
 
 // Process validates, stores and analytically processes one telemetry reading.
 // It also prevents duplicate active alerts for the same parameter.
 func (s *Service) Process(ctx context.Context, input TelemetryInput) (TelemetryResult, error) {
-	setpoint, err := s.validate(input)
+	setpoint, err := s.validate(ctx, input)
 	if err != nil {
 		return TelemetryResult{}, err
 	}
@@ -217,9 +217,13 @@ func (s *Service) createOrUpdateOpenAlert(
 	return createdAlert, true, false, nil
 }
 
-func (s *Service) validate(input TelemetryInput) (domain.Setpoint, error) {
-	setpoint, ok := s.setpoints[input.ParameterType]
-	if !ok {
+func (s *Service) validate(ctx context.Context, input TelemetryInput) (domain.Setpoint, error) {
+	setpoint, found, err := s.setpointRepository.GetByParameter(ctx, input.ParameterType)
+	if err != nil {
+		return domain.Setpoint{}, fmt.Errorf("load setpoint by parameter: %w", err)
+	}
+
+	if !found {
 		return domain.Setpoint{}, ValidationError{Message: "unknown parameterType"}
 	}
 

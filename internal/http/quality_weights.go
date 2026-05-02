@@ -71,12 +71,28 @@ func (h *QualityWeightHandler) Update(w nethttp.ResponseWriter, r *nethttp.Reque
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(&req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, "invalid JSON body")
+		writeErrorWithDetails(
+			w,
+			nethttp.StatusBadRequest,
+			"invalid_json_body",
+			"invalid JSON body",
+			map[string]string{
+				"reason": err.Error(),
+			},
+		)
 		return
 	}
 
 	if err := domain.ValidateQualityWeightUpdate(req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+		writeErrorWithDetails(
+			w,
+			nethttp.StatusBadRequest,
+			"validation_error",
+			"invalid quality weight",
+			map[string]string{
+				"reason": err.Error(),
+			},
+		)
 		return
 	}
 

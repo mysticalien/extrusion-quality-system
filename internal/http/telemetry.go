@@ -82,14 +82,28 @@ func (h *TelemetryHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) 
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(&req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, "invalid JSON body")
+		writeErrorWithDetails(
+			w,
+			nethttp.StatusBadRequest,
+			"invalid_json_body",
+			"invalid JSON body",
+			map[string]string{
+				"reason": err.Error(),
+			},
+		)
 		return
 	}
 
 	result, err := h.ingestionService.Process(r.Context(), req)
 	if err != nil {
 		if ingestion.IsValidationError(err) {
-			writeError(w, nethttp.StatusBadRequest, err.Error())
+			writeErrorWithDetails(
+				w,
+				nethttp.StatusBadRequest,
+				"validation_error",
+				"invalid telemetry input",
+				validationDetailsFromMessage(err.Error()),
+			)
 			return
 		}
 
@@ -99,4 +113,43 @@ func (h *TelemetryHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) 
 	}
 
 	writeJSON(w, nethttp.StatusCreated, result)
+}
+
+func validationDetailsFromMessage(message string) map[string]string {
+	switch message {
+	case "unknown parameterType":
+		return map[string]string{
+			"field":  "parameterType",
+			"reason": message,
+		}
+
+	case "unit is required":
+		return map[string]string{
+			"field":  "unit",
+			"reason": message,
+		}
+
+	case "unit does not match parameterType":
+		return map[string]string{
+			"field":  "unit",
+			"reason": message,
+		}
+
+	case "sourceId is required":
+		return map[string]string{
+			"field":  "sourceId",
+			"reason": message,
+		}
+
+	case "measuredAt is required":
+		return map[string]string{
+			"field":  "measuredAt",
+			"reason": message,
+		}
+
+	default:
+		return map[string]string{
+			"reason": message,
+		}
+	}
 }

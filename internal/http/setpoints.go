@@ -76,12 +76,28 @@ func (h *SetpointHandler) Update(w nethttp.ResponseWriter, r *nethttp.Request) {
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(&req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, "invalid JSON body")
+		writeErrorWithDetails(
+			w,
+			nethttp.StatusBadRequest,
+			"invalid_json_body",
+			"invalid JSON body",
+			map[string]string{
+				"reason": err.Error(),
+			},
+		)
 		return
 	}
 
 	if err := domain.ValidateSetpointUpdate(req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+		writeErrorWithDetails(
+			w,
+			nethttp.StatusBadRequest,
+			"validation_error",
+			"invalid setpoint ranges",
+			map[string]string{
+				"reason": err.Error(),
+			},
+		)
 		return
 	}
 

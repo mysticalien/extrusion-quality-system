@@ -112,13 +112,17 @@ function hideError() {
 }
 
 async function readAPIError(response) {
+    let code = "";
     let serverMessage = "";
 
     try {
         const body = await response.json();
 
-        if (body.error) {
+        if (typeof body.error === "string") {
             serverMessage = body.error;
+        } else if (body.error && typeof body.error === "object") {
+            code = body.error.code || "";
+            serverMessage = body.error.message || "";
         }
     } catch {
         try {
@@ -128,16 +132,20 @@ async function readAPIError(response) {
         }
     }
 
-    switch (serverMessage) {
+    switch (code || serverMessage) {
+        case "invalid_username_or_password":
         case "invalid username or password":
             return "Неверный логин или пароль";
 
+        case "missing_authorization_token":
         case "missing authorization token":
             return "Необходимо войти в систему";
 
+        case "invalid_authorization_token":
         case "invalid authorization token":
             return "Сессия недействительна. Войдите заново";
 
+        case "authorization_token_expired":
         case "authorization token expired":
             return "Сессия истекла. Войдите заново";
 
@@ -147,38 +155,61 @@ async function readAPIError(response) {
         case "forbidden":
             return "Недостаточно прав для выполнения действия";
 
+        case "user_already_exists":
         case "user already exists":
             return "Пользователь с таким логином уже существует";
 
         case "password must contain at least 12 characters":
             return "Пароль должен содержать минимум 12 символов";
 
+        case "new_password_too_short":
         case "new password must contain at least 12 characters":
             return "Новый пароль должен содержать минимум 12 символов";
 
+        case "old_password_required":
         case "old password is required":
             return "Введите текущий пароль";
 
+        case "old_password_incorrect":
         case "old password is incorrect":
             return "Текущий пароль указан неверно";
 
+        case "new_password_same_as_old":
         case "new password must be different from old password":
             return "Новый пароль должен отличаться от текущего";
 
         case "username is required":
             return "Введите логин";
 
+        case "invalid_user_role":
         case "invalid user role":
             return "Некорректная роль пользователя";
 
+        case "invalid_json_body":
         case "invalid JSON body":
             return "Некорректные данные формы";
 
+        case "setpoint_not_found":
         case "setpoint not found":
             return "Уставка не найдена";
 
         case "failed to update setpoint":
             return "Не удалось обновить уставку";
+
+        case "quality_weight_not_found":
+        case "quality weight not found":
+            return "Вес параметра не найден";
+
+        case "weight_must_be_positive":
+        case "weight must be positive":
+            return "Вес должен быть больше нуля";
+
+        case "weight_too_large":
+        case "weight must not be greater than 10":
+            return "Вес не должен быть больше 10";
+
+        case "validation_error":
+            return serverMessage || "Ошибка валидации";
 
         default:
             if (serverMessage) {

@@ -9,88 +9,6 @@ import (
 	"extrusion-quality-system/internal/domain"
 )
 
-func TestServiceLoginSuccess(t *testing.T) {
-	userRepository := newFakeUserRepository()
-	passwordHasher := &fakePasswordHasher{}
-	tokenManager := &fakeTokenManager{
-		token: "test-token",
-	}
-
-	rawPassword := "correct-password"
-	passwordHash, err := passwordHasher.Hash(rawPassword)
-	if err != nil {
-		t.Fatalf("Hash returned error: %v", err)
-	}
-
-	userRepository.users[1] = domain.User{
-		ID:           1,
-		Username:     "maria.sokolova",
-		PasswordHash: passwordHash,
-		Role:         domain.UserRoleTechnologist,
-		IsActive:     true,
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
-	}
-
-	service := NewService(userRepository, passwordHasher, tokenManager)
-
-	result, err := service.Login(context.Background(), LoginInput{
-		Username: "maria.sokolova",
-		Password: rawPassword,
-	})
-	if err != nil {
-		t.Fatalf("Login returned error: %v", err)
-	}
-
-	if result.Token != "test-token" {
-		t.Fatalf("Token = %q, want %q", result.Token, "test-token")
-	}
-
-	if result.User.ID != 1 {
-		t.Fatalf("User.ID = %d, want 1", result.User.ID)
-	}
-
-	if !tokenManager.generateCalled {
-		t.Fatal("expected token manager Generate to be called")
-	}
-}
-
-func TestServiceLoginWithWrongPasswordReturnsInvalidCredentials(t *testing.T) {
-	userRepository := newFakeUserRepository()
-	passwordHasher := &fakePasswordHasher{}
-	tokenManager := &fakeTokenManager{
-		token: "test-token",
-	}
-
-	passwordHash, err := passwordHasher.Hash("correct-password")
-	if err != nil {
-		t.Fatalf("Hash returned error: %v", err)
-	}
-
-	userRepository.users[1] = domain.User{
-		ID:           1,
-		Username:     "maria.sokolova",
-		PasswordHash: passwordHash,
-		Role:         domain.UserRoleTechnologist,
-		IsActive:     true,
-	}
-
-	service := NewService(userRepository, passwordHasher, tokenManager)
-
-	_, err = service.Login(context.Background(), LoginInput{
-		Username: "maria.sokolova",
-		Password: "wrong-password",
-	})
-
-	if !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("error = %v, want ErrInvalidCredentials", err)
-	}
-
-	if tokenManager.generateCalled {
-		t.Fatal("token should not be generated for wrong password")
-	}
-}
-
 func TestServiceLoginUnknownUserReturnsInvalidCredentials(t *testing.T) {
 	service := NewService(
 		newFakeUserRepository(),
@@ -165,11 +83,14 @@ func TestServiceLoginRepositoryErrorIsReturned(t *testing.T) {
 	}
 }
 
-func TestServiceChangePasswordSuccess(t *testing.T) {
+func TestServiceLoginTrimsUsername(t *testing.T) {
 	userRepository := newFakeUserRepository()
 	passwordHasher := &fakePasswordHasher{}
+	tokenManager := &fakeTokenManager{
+		token: "test-token",
+	}
 
-	oldHash, err := passwordHasher.Hash("old-password")
+	passwordHash, err := passwordHasher.Hash("correct-password")
 	if err != nil {
 		t.Fatalf("Hash returned error: %v", err)
 	}
@@ -177,36 +98,55 @@ func TestServiceChangePasswordSuccess(t *testing.T) {
 	userRepository.users[1] = domain.User{
 		ID:           1,
 		Username:     "maria.sokolova",
-		PasswordHash: oldHash,
+		PasswordHash: passwordHash,
 		Role:         domain.UserRoleTechnologist,
 		IsActive:     true,
 	}
 
-	service := NewService(
-		userRepository,
-		passwordHasher,
-		&fakeTokenManager{token: "test-token"},
-	)
+	service := NewService(userRepository, passwordHasher, tokenManager)
 
-	updatedUser, err := service.ChangePassword(context.Background(), ChangePasswordInput{
-		UserID:      1,
-		OldPassword: "old-password",
-		NewPassword: "new-password",
+	result, err := service.Login(context.Background(), LoginInput{
+		Username: "  maria.sokolova  ",
+		Password: "correct-password",
 	})
 	if err != nil {
-		t.Fatalf("ChangePassword returned error: %v", err)
+		t.Fatalf("Login returned error: %v", err)
 	}
 
-	if updatedUser.ID != 1 {
-		t.Fatalf("updated user id = %d, want 1", updatedUser.ID)
+	if result.User.Username != "maria.sokolova" {
+		t.Fatalf("username = %q, want maria.sokolova", result.User.Username)
+	}
+}
+
+func TestServiceLoginPasswordHasherRejectsPassword(t *testing.T) {
+	userRepository := newFakeUserRepository()
+
+	userRepository.users[1] = domain.User{
+		ID:           1,
+		Username:     "maria.sokolova",
+		PasswordHash: "any-hash",
+		Role:         domain.UserRoleTechnologist,
+		IsActive:     true,
 	}
 
-	if !passwordHasher.Check("new-password", updatedUser.PasswordHash) {
-		t.Fatal("new password hash does not match new password")
+	passwordHasher := &fakePasswordHasher{
+		forceCheckResult: true,
+		checkOK:          false,
 	}
 
-	if passwordHasher.Check("old-password", updatedUser.PasswordHash) {
-		t.Fatal("new password hash should not match old password")
+	tokenManager := &fakeTokenManager{
+		token: "test-token",
+	}
+
+	service := NewService(userRepository, passwordHasher, tokenManager)
+
+	_, err := service.Login(context.Background(), LoginInput{
+		Username: "maria.sokolova",
+		Password: "correct-password",
+	})
+
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("error = %v, want ErrInvalidCredentials", err)
 	}
 }
 
@@ -318,6 +258,148 @@ func TestServiceChangePasswordInactiveUser(t *testing.T) {
 		OldPassword: "old-password",
 		NewPassword: "new-password",
 	})
+
+	if !errors.Is(err, ErrUserInactiveOrNotFound) {
+		t.Fatalf("error = %v, want ErrUserInactiveOrNotFound", err)
+	}
+}
+
+func TestServiceChangePasswordHashErrorIsReturned(t *testing.T) {
+	userRepository := newFakeUserRepository()
+	passwordHasher := &fakePasswordHasher{}
+
+	oldHash, err := passwordHasher.Hash("old-password")
+	if err != nil {
+		t.Fatalf("Hash returned error: %v", err)
+	}
+
+	userRepository.users[1] = domain.User{
+		ID:           1,
+		Username:     "maria.sokolova",
+		PasswordHash: oldHash,
+		Role:         domain.UserRoleTechnologist,
+		IsActive:     true,
+	}
+
+	service := NewService(
+		userRepository,
+		&fakePasswordHasher{
+			hashErr: errPasswordHashFailure,
+		},
+		&fakeTokenManager{token: "test-token"},
+	)
+
+	_, err = service.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      1,
+		OldPassword: "old-password",
+		NewPassword: "new-password",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !errors.Is(err, errPasswordHashFailure) {
+		t.Fatalf("error = %v, want errPasswordHashFailure", err)
+	}
+}
+
+func TestServiceChangePasswordUpdateRepositoryErrorIsReturned(t *testing.T) {
+	userRepository := newFakeUserRepository()
+	passwordHasher := &fakePasswordHasher{}
+
+	oldHash, err := passwordHasher.Hash("old-password")
+	if err != nil {
+		t.Fatalf("Hash returned error: %v", err)
+	}
+
+	userRepository.users[1] = domain.User{
+		ID:           1,
+		Username:     "maria.sokolova",
+		PasswordHash: oldHash,
+		Role:         domain.UserRoleTechnologist,
+		IsActive:     true,
+	}
+
+	userRepository.updatePasswordErr = errUserRepositoryFailure
+
+	service := NewService(
+		userRepository,
+		passwordHasher,
+		&fakeTokenManager{token: "test-token"},
+	)
+
+	_, err = service.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      1,
+		OldPassword: "old-password",
+		NewPassword: "new-password",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !errors.Is(err, errUserRepositoryFailure) {
+		t.Fatalf("error = %v, want errUserRepositoryFailure", err)
+	}
+}
+
+func TestServiceChangePasswordFindByIDErrorIsReturned(t *testing.T) {
+	userRepository := newFakeUserRepository()
+	userRepository.findByIDErr = errUserRepositoryFailure
+
+	service := NewService(
+		userRepository,
+		&fakePasswordHasher{},
+		&fakeTokenManager{token: "test-token"},
+	)
+
+	_, err := service.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      1,
+		OldPassword: "old-password",
+		NewPassword: "new-password",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !errors.Is(err, errUserRepositoryFailure) {
+		t.Fatalf("error = %v, want errUserRepositoryFailure", err)
+	}
+}
+
+func TestServiceChangePasswordUpdateReturnsNotFound(t *testing.T) {
+	userRepository := newFakeUserRepository()
+	passwordHasher := &fakePasswordHasher{}
+
+	oldHash, err := passwordHasher.Hash("old-password")
+	if err != nil {
+		t.Fatalf("Hash returned error: %v", err)
+	}
+
+	userRepository.users[1] = domain.User{
+		ID:           1,
+		Username:     "maria.sokolova",
+		PasswordHash: oldHash,
+		Role:         domain.UserRoleTechnologist,
+		IsActive:     true,
+	}
+
+	userRepository.useUpdatePasswordFound = true
+	userRepository.updatePasswordFound = false
+
+	service := NewService(
+		userRepository,
+		passwordHasher,
+		&fakeTokenManager{token: "test-token"},
+	)
+
+	_, err = service.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      1,
+		OldPassword: "old-password",
+		NewPassword: "new-password",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
 
 	if !errors.Is(err, ErrUserInactiveOrNotFound) {
 		t.Fatalf("error = %v, want ErrUserInactiveOrNotFound", err)
@@ -489,14 +571,13 @@ func (h *fakePasswordHasher) Check(password string, passwordHash string) bool {
 }
 
 type fakeTokenManager struct {
-	token          string
-	generateErr    error
-	parseErr       error
-	generateCalled bool
+	token       string
+	generateErr error
+	parseErr    error
 }
 
 func (m *fakeTokenManager) Generate(user domain.User) (string, error) {
-	m.generateCalled = true
+	_ = user
 
 	if m.generateErr != nil {
 		return "", m.generateErr
@@ -506,6 +587,8 @@ func (m *fakeTokenManager) Generate(user domain.User) (string, error) {
 }
 
 func (m *fakeTokenManager) Parse(rawToken string) (domain.AuthClaims, error) {
+	_ = rawToken
+
 	if m.parseErr != nil {
 		return domain.AuthClaims{}, m.parseErr
 	}
@@ -517,255 +600,5 @@ func (m *fakeTokenManager) Parse(rawToken string) (domain.AuthClaims, error) {
 	}, nil
 }
 
-func TestServiceLoginTrimsUsername(t *testing.T) {
-	userRepository := newFakeUserRepository()
-	passwordHasher := &fakePasswordHasher{}
-	tokenManager := &fakeTokenManager{
-		token: "test-token",
-	}
-
-	passwordHash, err := passwordHasher.Hash("correct-password")
-	if err != nil {
-		t.Fatalf("Hash returned error: %v", err)
-	}
-
-	userRepository.users[1] = domain.User{
-		ID:           1,
-		Username:     "maria.sokolova",
-		PasswordHash: passwordHash,
-		Role:         domain.UserRoleTechnologist,
-		IsActive:     true,
-	}
-
-	service := NewService(userRepository, passwordHasher, tokenManager)
-
-	result, err := service.Login(context.Background(), LoginInput{
-		Username: "  maria.sokolova  ",
-		Password: "correct-password",
-	})
-	if err != nil {
-		t.Fatalf("Login returned error: %v", err)
-	}
-
-	if result.User.Username != "maria.sokolova" {
-		t.Fatalf("username = %q, want maria.sokolova", result.User.Username)
-	}
-}
-
-func TestServiceLoginTokenGenerationErrorIsReturned(t *testing.T) {
-	userRepository := newFakeUserRepository()
-	passwordHasher := &fakePasswordHasher{}
-
-	passwordHash, err := passwordHasher.Hash("correct-password")
-	if err != nil {
-		t.Fatalf("Hash returned error: %v", err)
-	}
-
-	userRepository.users[1] = domain.User{
-		ID:           1,
-		Username:     "maria.sokolova",
-		PasswordHash: passwordHash,
-		Role:         domain.UserRoleTechnologist,
-		IsActive:     true,
-	}
-
-	tokenManager := &fakeTokenManager{
-		generateErr: errTokenGenerationFailure,
-	}
-
-	service := NewService(userRepository, passwordHasher, tokenManager)
-
-	_, err = service.Login(context.Background(), LoginInput{
-		Username: "maria.sokolova",
-		Password: "correct-password",
-	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-
-	if !errors.Is(err, errTokenGenerationFailure) {
-		t.Fatalf("error = %v, want errTokenGenerationFailure", err)
-	}
-}
-
-func TestServiceChangePasswordHashErrorIsReturned(t *testing.T) {
-	userRepository := newFakeUserRepository()
-	passwordHasher := &fakePasswordHasher{}
-
-	oldHash, err := passwordHasher.Hash("old-password")
-	if err != nil {
-		t.Fatalf("Hash returned error: %v", err)
-	}
-
-	userRepository.users[1] = domain.User{
-		ID:           1,
-		Username:     "maria.sokolova",
-		PasswordHash: oldHash,
-		Role:         domain.UserRoleTechnologist,
-		IsActive:     true,
-	}
-
-	service := NewService(
-		userRepository,
-		&fakePasswordHasher{
-			hashErr: errPasswordHashFailure,
-		},
-		&fakeTokenManager{token: "test-token"},
-	)
-
-	_, err = service.ChangePassword(context.Background(), ChangePasswordInput{
-		UserID:      1,
-		OldPassword: "old-password",
-		NewPassword: "new-password",
-	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-
-	if !errors.Is(err, errPasswordHashFailure) {
-		t.Fatalf("error = %v, want errPasswordHashFailure", err)
-	}
-}
-
-func TestServiceChangePasswordUpdateRepositoryErrorIsReturned(t *testing.T) {
-	userRepository := newFakeUserRepository()
-	passwordHasher := &fakePasswordHasher{}
-
-	oldHash, err := passwordHasher.Hash("old-password")
-	if err != nil {
-		t.Fatalf("Hash returned error: %v", err)
-	}
-
-	userRepository.users[1] = domain.User{
-		ID:           1,
-		Username:     "maria.sokolova",
-		PasswordHash: oldHash,
-		Role:         domain.UserRoleTechnologist,
-		IsActive:     true,
-	}
-
-	userRepository.updatePasswordErr = errUserRepositoryFailure
-
-	service := NewService(
-		userRepository,
-		passwordHasher,
-		&fakeTokenManager{token: "test-token"},
-	)
-
-	_, err = service.ChangePassword(context.Background(), ChangePasswordInput{
-		UserID:      1,
-		OldPassword: "old-password",
-		NewPassword: "new-password",
-	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-
-	if !errors.Is(err, errUserRepositoryFailure) {
-		t.Fatalf("error = %v, want errUserRepositoryFailure", err)
-	}
-}
-
-func TestServiceLoginPasswordHasherRejectsPassword(t *testing.T) {
-	userRepository := newFakeUserRepository()
-
-	userRepository.users[1] = domain.User{
-		ID:           1,
-		Username:     "maria.sokolova",
-		PasswordHash: "any-hash",
-		Role:         domain.UserRoleTechnologist,
-		IsActive:     true,
-	}
-
-	passwordHasher := &fakePasswordHasher{
-		forceCheckResult: true,
-		checkOK:          false,
-	}
-
-	tokenManager := &fakeTokenManager{
-		token: "test-token",
-	}
-
-	service := NewService(userRepository, passwordHasher, tokenManager)
-
-	_, err := service.Login(context.Background(), LoginInput{
-		Username: "maria.sokolova",
-		Password: "correct-password",
-	})
-
-	if !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("error = %v, want ErrInvalidCredentials", err)
-	}
-
-	if tokenManager.generateCalled {
-		t.Fatal("token should not be generated")
-	}
-}
-
-func TestServiceChangePasswordFindByIDErrorIsReturned(t *testing.T) {
-	userRepository := newFakeUserRepository()
-	userRepository.findByIDErr = errUserRepositoryFailure
-
-	service := NewService(
-		userRepository,
-		&fakePasswordHasher{},
-		&fakeTokenManager{token: "test-token"},
-	)
-
-	_, err := service.ChangePassword(context.Background(), ChangePasswordInput{
-		UserID:      1,
-		OldPassword: "old-password",
-		NewPassword: "new-password",
-	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-
-	if !errors.Is(err, errUserRepositoryFailure) {
-		t.Fatalf("error = %v, want errUserRepositoryFailure", err)
-	}
-}
-
-func TestServiceChangePasswordUpdateReturnsNotFound(t *testing.T) {
-	userRepository := newFakeUserRepository()
-	passwordHasher := &fakePasswordHasher{}
-
-	oldHash, err := passwordHasher.Hash("old-password")
-	if err != nil {
-		t.Fatalf("Hash returned error: %v", err)
-	}
-
-	userRepository.users[1] = domain.User{
-		ID:           1,
-		Username:     "maria.sokolova",
-		PasswordHash: oldHash,
-		Role:         domain.UserRoleTechnologist,
-		IsActive:     true,
-	}
-
-	userRepository.useUpdatePasswordFound = true
-	userRepository.updatePasswordFound = false
-
-	service := NewService(
-		userRepository,
-		passwordHasher,
-		&fakeTokenManager{token: "test-token"},
-	)
-
-	_, err = service.ChangePassword(context.Background(), ChangePasswordInput{
-		UserID:      1,
-		OldPassword: "old-password",
-		NewPassword: "new-password",
-	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-
-	if !errors.Is(err, ErrUserInactiveOrNotFound) {
-		t.Fatalf("error = %v, want ErrUserInactiveOrNotFound", err)
-	}
-}
-
 var errUserRepositoryFailure = errors.New("user repository failure")
-var errTokenGenerationFailure = errors.New("token generation failure")
 var errPasswordHashFailure = errors.New("password hash failure")

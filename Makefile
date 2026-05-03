@@ -67,6 +67,7 @@ help:
 	@echo "  make check                   Format, test and build"
 	@echo "  make run-server              Run backend server locally"
 	@echo "  make run-simulator           Run simulator locally"
+	@echo "  make mocks                 Generate mocks"
 	@echo ""
 
 .PHONY: require-database-url
@@ -224,3 +225,7 @@ run-server:
 .PHONY: run-simulator
 run-simulator:
 	CONFIG_PATH=.env go run $(SIMULATOR_PACKAGE)
+
+.PHONY: mocks
+mocks:
+	mockery

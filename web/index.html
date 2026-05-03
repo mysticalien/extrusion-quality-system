@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Панель контроля качества экструзии</title>
 
-    <link rel="stylesheet" href="/static/styles.css?v=40">
+    <link rel="stylesheet" href="/static/styles.css?v=41">
 </head>
 
 <body>
@@ -61,8 +61,9 @@
 <div id="error" class="error"></div>
 
 <section id="loginSection" class="section auth-card">
-    <div class="section-header">
+    <div class="section-header auth-header">
         <div>
+            <div class="auth-badge">Авторизация</div>
             <h2>Вход в систему</h2>
             <p>Введите учётные данные пользователя системы мониторинга.</p>
         </div>
@@ -79,7 +80,7 @@
             <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Введите пароль">
         </div>
 
-        <div class="control-group">
+        <div class="control-group login-button-group">
             <button id="loginButton" onclick="login()">Войти</button>
         </div>
     </div>
@@ -346,6 +347,6 @@
     </section>
 </main>
 
-<script src="/static/app.js?v=40"></script>
+<script src="/static/app.js?v=41"></script>
 </body>
 </html>

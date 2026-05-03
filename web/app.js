@@ -716,28 +716,30 @@ function renderQualityWeights(weights) {
         const name = formatParameter(item.parameterType);
 
         return `
-      <article class="parameter-card">
-        <div class="parameter-name">${escapeHTML(name)}</div>
+      <article class="parameter-card quality-weight-card">
+        <div class="quality-weight-card-content">
+          <div class="parameter-name">${escapeHTML(name)}</div>
 
-        <div class="control-group">
-          <label for="qualityWeight_${item.id}">Вес</label>
-          <input
-            id="qualityWeight_${item.id}"
-            type="number"
-            min="0.1"
-            max="10"
-            step="0.1"
-            value="${formatNumber(item.weight)}"
-          >
+          <div class="control-group">
+            <label for="qualityWeight_${item.id}">Вес</label>
+            <input
+              id="qualityWeight_${item.id}"
+              type="number"
+              min="0.1"
+              max="10"
+              step="0.1"
+              value="${formatNumber(item.weight)}"
+            >
+          </div>
+
+          <div class="parameter-meta quality-weight-meta">
+            Параметр: ${escapeHTML(name)}<br />
+            Обновлено: ${formatDate(item.updatedAt)}<br />
+            Кем обновлено: ${escapeHTML(item.updatedBy || "—")}
+          </div>
         </div>
 
-        <div class="parameter-meta">
-          Параметр: ${escapeHTML(name)}<br />
-          Обновлено: ${formatDate(item.updatedAt)}<br />
-          Кем обновлено: ${escapeHTML(item.updatedBy || "—")}
-        </div>
-
-        <button onclick="saveQualityWeight(${item.id})">
+        <button class="quality-weight-button" onclick="saveQualityWeight(${item.id})">
           Сохранить вес
         </button>
       </article>

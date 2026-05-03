@@ -158,6 +158,18 @@ services:
       SIMULATOR_MQTT_TIMEOUT: ${SIMULATOR_MQTT_TIMEOUT:-10s}
     command: ["/app/simulator"]
 
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: extrusion_kafka_ui
+    depends_on:
+      - kafka
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: extrusion-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   mosquitto_data:

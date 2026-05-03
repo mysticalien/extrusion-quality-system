@@ -1,352 +1,809 @@
-## Назначение системы
+# Информационно-аналитическая система контроля качества экструзии кормов
 
-Система предназначена для мониторинга и аналитической обработки параметров экструзионного процесса производства сухих кормов.
+Система предназначена для мониторинга параметров технологического процесса экструзии сухих кормов, выявления отклонений, обнаружения аномалий и расчёта итогового индекса качества процесса.
 
-## Основные контролируемые параметры
+Проект включает backend на Go, PostgreSQL, Kafka/MQTT-интеграцию, ролевую модель доступа, веб-интерфейс оператора и демонстрационные сценарии для защиты.
 
-pressure
-moisture
-barrel_temperature_zone_1
-barrel_temperature_zone_2
-barrel_temperature_zone_3
-screw_speed
-drive_load
-outlet_temperature
+---
 
-## Роли
+## Возможности системы
 
-operator
-technologist
-admin
+Система позволяет:
 
-## Пока не делаем
+- принимать телеметрию технологических параметров;
+- хранить последние и исторические значения измерений;
+- сравнивать параметры с технологическими уставками;
+- создавать события уровней `предупреждение` и `критично`;
+- обнаруживать аномалии процесса;
+- рассчитывать индекс качества экструзии;
+- разграничивать доступ по ролям пользователей;
+- управлять уставками и весами параметров;
+- просматривать графики истории измерений;
+- демонстрировать normal, warning, critical и anomaly-сценарии.
 
-Kafka
-Redis
-Kubernetes
-ML
-микросервисы
+---
 
-## Локальный запуск PostgreSQL и backend
+## Скриншоты интерфейса
 
-Для локального запуска используется файл `.env`. Он не должен добавляться в репозиторий.  
-В репозитории хранится только `.env.example`.
+### Главная панель мониторинга
 
-Создать локальный `.env`:
+![Главная панель мониторинга](docs/screens/dashboard-overview.png)
+
+### Активные события
+
+![Активные события](docs/screens/events.png)
+
+### История телеметрии
+
+![История телеметрии](docs/screens/telemetry-history.png)
+
+### Настройка уставок
+
+![Настройка уставок](docs/screens/setpoints.png)
+
+### Управление качеством
+
+![Управление качеством](docs/screens/quality.png)
+
+---
+
+## Технологический стек
+
+Backend:
+
+- Go
+- net/http
+- PostgreSQL
+- pgx
+- goose migrations
+- Kafka
+- MQTT
+- JWT-аутентификация
+- bcrypt-хеширование паролей
+- unit-тесты и integration-тесты
+
+Frontend:
+
+- HTML
+- CSS
+- JavaScript
+- Canvas-график истории телеметрии
+
+Инфраструктура:
+
+- Docker
+- Docker Compose
+- Makefile
+
+---
+
+## Архитектура проекта
+
+Проект разделён по слоям:
+
+```text
+cmd/
+  server/              точка входа backend-сервера
+  simulator/           симулятор телеметрии
+
+internal/
+  adapters/
+    http/              HTTP-обработчики
+    kafka/             Kafka producer/consumer
+    mqtt/              MQTT subscriber
+    postgres/          PostgreSQL-репозитории
+
+  app/
+    server/            сборка зависимостей, запуск HTTP-сервера
+    simulator/         запуск симулятора
+
+  config/              загрузка и валидация конфигурации
+
+  domain/              доменные модели и правила
+
+  ports/               интерфейсы репозиториев и сервисов
+
+  security/
+    password/          bcrypt-хеширование паролей
+    token/             JWT-токены
+
+  usecase/
+    auth/              сценарии авторизации
+    telemetry/         обработка телеметрии
+    anomalies/         обнаружение аномалий
+    quality/           расчёт индекса качества
+```
+
+Основная цепочка обработки:
+
+```text
+телеметрия → проверка уставок → событие/аномалия → индекс качества → отображение в UI
+```
+
+---
+
+## Роли пользователей
+
+В системе предусмотрены три роли.
+
+### Оператор
+
+Может:
+
+- просматривать текущие параметры;
+- видеть активные события;
+- подтверждать события.
+
+Не может:
+
+- изменять уставки;
+- управлять пользователями;
+- изменять веса качества.
+
+### Технолог
+
+Может:
+
+- просматривать параметры;
+- видеть события и аномалии;
+- просматривать историю телеметрии;
+- изменять технологические уставки;
+- изменять веса параметров для индекса качества.
+
+### Администратор
+
+Может:
+
+- управлять пользователями;
+- менять роли пользователей;
+- активировать и деактивировать пользователей;
+- сбрасывать пароли;
+- выполнять действия технолога.
+
+---
+
+## Быстрый запуск
+
+### 1. Склонировать проект
+
+```bash
+git clone <repository-url>
+cd extrusion-quality-system
+```
+
+### 2. Подготовить `.env`
+
+Можно взять пример:
 
 ```bash
 cp .env.example .env
 ```
 
-После этого нужно заменить значения-заглушки, например POSTGRES_PASSWORD и пароль внутри DATABASE_URL.
+Пример важных переменных:
 
-Запуск PostgreSQL
+```env
+SERVER_ADDR=:8080
 
-```bash
-docker compose up -d postgres
+DATABASE_URL=postgres://postgres:postgres@postgres:5432/extrusion_quality?sslmode=disable
+
+JWT_SECRET=local-dev-secret-change-me
+JWT_TOKEN_TTL=24h
+AUTH_TOKEN_ISSUER=extrusion-quality-system
+AUTH_BCRYPT_COST=10
+
+KAFKA_ENABLED=true
+KAFKA_BROKERS=kafka:9092
+KAFKA_TELEMETRY_TOPIC=extrusion.telemetry.raw
+KAFKA_CONSUMER_GROUP=extrusion-quality-service
+
+MQTT_ENABLED=true
+MQTT_BROKER_URL=tcp://mqtt:1883
+MQTT_TELEMETRY_TOPIC=extrusion/telemetry
+MQTT_CLIENT_ID=extrusion-quality-server
+MQTT_QOS=0
 ```
 
-Проверить, что контейнер запущен:
+### 3. Запустить систему
 
 ```bash
-docker ps
+make compose-up
 ```
 
-Применение миграции
-
-```bash
-docker exec -i extrusion_postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < migrations/001_init.sql
-```
-
-Проверка таблиц
-
-```bash
-docker exec -it extrusion_postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-```
-
-Внутри psql:
-
-```bash
-\dt
-```
-
-Ожидаемые таблицы:
-
-telemetry_readings
-alert_events
-quality_index_values
-Запуск backend
-
-Backend читает конфигурацию через cleanenv.
-
-Для запуска с .env:
-
-```bash
-CONFIG_PATH=.env go run ./cmd/server
-```
-
-Проверить health-check:
-
-```bash
-curl -i http://localhost:8080/health
-```
-
-Проверка записи телеметрии
-
-```bash
-curl -i -X POST http://localhost:8080/api/telemetry \
--H "Content-Type: application/json" \
--d '{
-"parameterType": "pressure",
-"value": 82.5,
-"unit": "bar",
-"sourceId": "simulator",
-"measuredAt": "2026-04-27T18:00:00Z"
-}'
-```
-
-Проверка данных в PostgreSQL
-
-```bash
-docker exec -it extrusion_postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-```
-
-Внутри psql:
-
-```bash
-SELECT * FROM telemetry_readings ORDER BY id DESC LIMIT 5;
-SELECT * FROM alert_events ORDER BY id DESC LIMIT 5;
-SELECT * FROM quality_index_values ORDER BY id DESC LIMIT 5;
-```
-
-Возможная проблема: role does not exist
-
-Если при запуске backend появляется ошибка:
-
-FATAL: role "..." does not exist
-
-это означает, что PostgreSQL уже был инициализирован ранее с другим пользователем или другой базой данных. Переменные POSTGRES_USER, POSTGRES_DB и POSTGRES_PASSWORD применяются только при первом создании volume.
-
-
-## Авторизация
-
-В системе используется JWT-аутентификация.
-
-Схема работы:
+После запуска открыть:
 
 ```text
-login + password -> проверка bcrypt-хэша -> выдача JWT -> запросы с Bearer token
+http://localhost:8080
 ```
 
-Пароли пользователей не хранятся в базе данных в открытом виде.  
-В таблицу `users` записывается только `password_hash`, созданный через bcrypt.
+---
 
-После успешного входа backend возвращает JWT-токен:
+## Остановка системы
 
 ```bash
+make compose-down
+```
+
+Если нужно полностью очистить контейнеры и volumes:
+
+```bash
+docker compose down -v
+```
+
+---
+
+## Миграции базы данных
+
+Миграции запускаются автоматически через compose-сервис `migrate`.
+
+Ручной запуск:
+
+```bash
+goose -dir migrations postgres "$DATABASE_URL" up
+```
+
+---
+
+## Тестовые пользователи
+
+После применения seed-данных доступны пользователи для демонстрации.
+
+```text
+operator      — оператор
+technologist  — технолог
+admin         — администратор
+```
+
+Пароли зависят от seed-миграции проекта. Если пароль был изменён через UI, можно сбросить базу:
+
+```bash
+docker compose down -v
+make compose-up
+```
+
+---
+
+## API
+
+### Авторизация
+
+```http
 POST /api/login
 ```
 
-Пример ответа:
-
-```json
-{
-  "token": "<jwt-token>",
-  "user": {
-    "id": 1,
-    "username": "operator.user",
-    "role": "operator",
-    "isActive": true
-  }
-}
-```
-
-Для обращения к защищённым API нужно передавать токен в заголовке:
+Пример:
 
 ```bash
-Authorization: Bearer <jwt-token>
-```
-
-Без токена backend возвращает `401 Unauthorized`.  
-Если токен есть, но у роли недостаточно прав, backend возвращает `403 Forbidden`.
-
-## Роли пользователей
-
-В системе используются три роли:
-
-```text
-operator
-technologist
-admin
-```
-
-Права ролей:
-
-```text
-operator:
-- просмотр dashboard;
-- просмотр текущих параметров;
-- просмотр активных событий;
-- подтверждение событий;
-- просмотр текущего индекса качества.
-
-technologist:
-- всё, что может operator;
-- просмотр истории параметров;
-- просмотр аномалий;
-- изменение уставок.
-
-admin:
-- управление пользователями;
-- создание пользователей;
-- изменение ролей;
-- активация и деактивация пользователей;
-- сброс паролей.
-```
-
-## Инициализация тестовых пользователей
-
-Перед запуском авторизации нужно создать пользователей в таблице `users`.
-
-Имена пользователей можно задать через переменные окружения:
-
-```bash
-export APP_OPERATOR_USERNAME="operator.user"
-export APP_TECHNOLOGIST_USERNAME="technologist.user"
-export APP_ADMIN_USERNAME="admin.user"
-```
-
-Пароли лучше вводить скрыто, чтобы они не попали в историю команд:
-
-```bash
-read -s -p "Operator password: " APP_OPERATOR_PASSWORD
-echo
-
-read -s -p "Technologist password: " APP_TECHNOLOGIST_PASSWORD
-echo
-
-read -s -p "Admin password: " APP_ADMIN_PASSWORD
-echo
-```
-
-Сгенерировать SQL с bcrypt-хэшами:
-
-```bash
-cat > /tmp/generate_users_sql.go <<'EOF'
-package main
-
-import (
-	"fmt"
-	"os"
-	"strings"
-
-	"golang.org/x/crypto/bcrypt"
-)
-
-type userSeed struct {
-	Username string
-	Password string
-	Role     string
-}
-
-func quote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
-}
-
-func requireEnv(name string) string {
-	value := os.Getenv(name)
-	if value == "" {
-		panic("missing required environment variable: " + name)
-	}
-
-	return value
-}
-
-func main() {
-	users := []userSeed{
-		{
-			Username: requireEnv("APP_OPERATOR_USERNAME"),
-			Password: requireEnv("APP_OPERATOR_PASSWORD"),
-			Role:     "operator",
-		},
-		{
-			Username: requireEnv("APP_TECHNOLOGIST_USERNAME"),
-			Password: requireEnv("APP_TECHNOLOGIST_PASSWORD"),
-			Role:     "technologist",
-		},
-		{
-			Username: requireEnv("APP_ADMIN_USERNAME"),
-			Password: requireEnv("APP_ADMIN_PASSWORD"),
-			Role:     "admin",
-		},
-	}
-
-	for _, user := range users {
-		hash, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Printf(`
-INSERT INTO users (
-	username,
-	password_hash,
-	role,
-	is_active,
-	created_at,
-	updated_at
-)
-VALUES (
-	%s,
-	%s,
-	%s,
-	true,
-	now(),
-	now()
-)
-ON CONFLICT (username)
-DO UPDATE SET
-	password_hash = EXCLUDED.password_hash,
-	role = EXCLUDED.role,
-	is_active = true,
-	updated_at = now();
-`,
-			quote(user.Username),
-			quote(string(hash)),
-			quote(user.Role),
-		)
-	}
-}
-EOF
-
-go run /tmp/generate_users_sql.go > /tmp/seed_users.sql
-```
-
-Применить SQL к PostgreSQL в Docker:
-
-```bash
-docker exec -i extrusion_postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < /tmp/seed_users.sql
-```
-
-Проверить пользователей:
-
-```bash
-docker exec -it extrusion_postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id, username, role, is_active, length(password_hash) AS password_hash_length FROM users ORDER BY id;"'
-```
-
-Ожидаемо длина bcrypt-хэша должна быть `60`.
-
-## Проверка входа
-
-```bash
-TOKEN=$(curl -s -X POST http://localhost:8080/api/login \
+curl -s http://localhost:8080/api/login \
   -H "Content-Type: application/json" \
-  -d "{
-    \"username\": \"$APP_OPERATOR_USERNAME\",
-    \"password\": \"$APP_OPERATOR_PASSWORD\"
-  }" \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+  -d '{
+    "username": "technologist",
+    "password": "technologist-password"
+  }'
+```
 
-curl -i http://localhost:8080/api/me \
+### Текущий пользователь
+
+```http
+GET /api/me
+```
+
+```bash
+curl -s http://localhost:8080/api/me \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+### Отправка телеметрии
+
+```http
+POST /api/telemetry
+```
+
+```bash
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+curl -s http://localhost:8080/api/telemetry \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"parameterType\": \"pressure\",
+    \"value\": 95,
+    \"unit\": \"bar\",
+    \"sourceId\": \"demo\",
+    \"measuredAt\": \"$NOW\"
+  }"
+```
+
+### Последние значения телеметрии
+
+```http
+GET /api/telemetry/latest
+```
+
+### История телеметрии
+
+```http
+GET /api/telemetry/history?parameter=pressure&limit=30
+```
+
+### Активные события
+
+```http
+GET /api/events/active
+```
+
+### Активные аномалии
+
+```http
+GET /api/anomalies/active
+```
+
+### Индекс качества
+
+```http
+GET /api/quality/latest
+```
+
+---
+
+## Тестирование
+
+Запуск всех тестов:
+
+```bash
+go test ./...
+```
+
+Запуск с покрытием:
+
+```bash
+go test ./... -cover
+```
+
+Генерация HTML-отчёта покрытия:
+
+```bash
+go test ./... -coverprofile=coverage.out
+go tool cover -html=coverage.out
+```
+
+Покрытые части:
+
+- доменные правила уставок;
+- расчёт индекса качества;
+- обнаружение аномалий;
+- сценарии обработки телеметрии;
+- авторизация;
+- JWT-токены;
+- bcrypt-хеширование;
+- проверка прав доступа;
+- минимальная integration-цепочка.
+
+---
+
+## Демонстрационные сценарии
+
+Демонстрационные сценарии нужны, чтобы за 3–5 минут показать работу всей системы.
+
+Перед запуском сценариев нужно получить токен:
+
+```bash
+TOKEN=$(curl -s http://localhost:8080/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"technologist","password":"technologist-password"}' \
+  | jq -r '.token')
+```
+
+---
+
+## Сценарий 1. Нормальный режим
+
+Показывает:
+
+- параметры в норме;
+- индекс качества высокий;
+- активных событий нет.
+
+```bash
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+curl -s http://localhost:8080/api/telemetry \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"parameterType\":\"pressure\",
+    \"value\":95,
+    \"unit\":\"bar\",
+    \"sourceId\":\"demo-normal\",
+    \"measuredAt\":\"$NOW\"
+  }"
+
+curl -s http://localhost:8080/api/telemetry \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"parameterType\":\"moisture\",
+    \"value\":22,
+    \"unit\":\"percent\",
+    \"sourceId\":\"demo-normal\",
+    \"measuredAt\":\"$NOW\"
+  }"
+
+curl -s http://localhost:8080/api/telemetry \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"parameterType\":\"drive_load\",
+    \"value\":45,
+    \"unit\":\"percent\",
+    \"sourceId\":\"demo-normal\",
+    \"measuredAt\":\"$NOW\"
+  }"
+```
+
+---
+
+## Сценарий 2. Предупреждение
+
+Показывает:
+
+- давление вышло в warning-диапазон;
+- создалось событие;
+- индекс качества снизился;
+- оператор может подтвердить событие.
+
+```bash
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+curl -s http://localhost:8080/api/telemetry \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"parameterType\":\"pressure\",
+    \"value\":88,
+    \"unit\":\"bar\",
+    \"sourceId\":\"demo-warning\",
+    \"measuredAt\":\"$NOW\"
+  }"
+```
+
+После этого в UI открыть вкладку **События** и нажать **Подтвердить**.
+
+---
+
+## Сценарий 3. Критическое отклонение
+
+Показывает:
+
+- параметр находится в critical-диапазоне;
+- создаётся критическое событие;
+- индекс качества снижается сильнее.
+
+```bash
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+curl -s http://localhost:8080/api/telemetry \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"parameterType\":\"pressure\",
+    \"value\":145,
+    \"unit\":\"bar\",
+    \"sourceId\":\"demo-critical\",
+    \"measuredAt\":\"$NOW\"
+  }"
+```
+
+---
+
+## Сценарий 4. Аномалия процесса
+
+Показывает:
+
+- влажность падает;
+- давление растёт;
+- нагрузка привода растёт;
+- система обнаруживает комбинированный риск процесса.
+
+```bash
+for i in 0 1 2 3 4
+do
+  TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  PRESSURE=$((90 + i * 3))
+  MOISTURE=$(awk "BEGIN {print 23 - $i * 0.6}")
+  DRIVE_LOAD=$((45 + i * 3))
+
+  curl -s http://localhost:8080/api/telemetry \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"parameterType\":\"pressure\",\"value\":$PRESSURE,\"unit\":\"bar\",\"sourceId\":\"demo-anomaly\",\"measuredAt\":\"$TS\"}" > /dev/null
+
+  curl -s http://localhost:8080/api/telemetry \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"parameterType\":\"moisture\",\"value\":$MOISTURE,\"unit\":\"percent\",\"sourceId\":\"demo-anomaly\",\"measuredAt\":\"$TS\"}" > /dev/null
+
+  curl -s http://localhost:8080/api/telemetry \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"parameterType\":\"drive_load\",\"value\":$DRIVE_LOAD,\"unit\":\"percent\",\"sourceId\":\"demo-anomaly\",\"measuredAt\":\"$TS\"}" > /dev/null
+
+  sleep 1
+done
+```
+
+После выполнения открыть вкладку **События** или **Аномалии**.
+
+---
+
+## Сценарий 5. Проверка ролевого доступа
+
+### Оператор
+
+Войти как оператор.
+
+Показать:
+
+- доступен обзор;
+- доступны события;
+- можно подтвердить событие;
+- вкладка уставок недоступна.
+
+### Технолог
+
+Войти как технолог.
+
+Показать:
+
+- доступна история;
+- доступны аномалии;
+- доступна настройка уставок;
+- можно изменить границы параметра.
+
+---
+
+## Удобный demo-скрипт
+
+Для защиты можно добавить файл:
+
+```text
+scripts/demo.sh
+```
+
+Пример запуска:
+
+```bash
+./scripts/demo.sh normal
+./scripts/demo.sh warning
+./scripts/demo.sh critical
+./scripts/demo.sh anomaly
+```
+
+Пример содержимого:
+
+```bash
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+BASE_URL="${BASE_URL:-http://localhost:8080}"
+USERNAME="${USERNAME:-technologist}"
+PASSWORD="${PASSWORD:-technologist-password}"
+
+TOKEN=$(curl -s "$BASE_URL/api/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD\"}" \
+  | jq -r '.token')
+
+send_telemetry() {
+  local parameter_type="$1"
+  local value="$2"
+  local unit="$3"
+  local source_id="$4"
+  local measured_at
+
+  measured_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  curl -s "$BASE_URL/api/telemetry" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"parameterType\":\"$parameter_type\",
+      \"value\":$value,
+      \"unit\":\"$unit\",
+      \"sourceId\":\"$source_id\",
+      \"measuredAt\":\"$measured_at\"
+    }" > /dev/null
+}
+
+case "${1:-}" in
+  normal)
+    send_telemetry pressure 95 bar demo-normal
+    send_telemetry moisture 22 percent demo-normal
+    send_telemetry drive_load 45 percent demo-normal
+    echo "Normal scenario sent"
+    ;;
+
+  warning)
+    send_telemetry pressure 88 bar demo-warning
+    echo "Warning scenario sent"
+    ;;
+
+  critical)
+    send_telemetry pressure 145 bar demo-critical
+    echo "Critical scenario sent"
+    ;;
+
+  anomaly)
+    for i in 0 1 2 3 4
+    do
+      pressure=$((90 + i * 3))
+      moisture=$(awk "BEGIN {print 23 - $i * 0.6}")
+      drive_load=$((45 + i * 3))
+
+      send_telemetry pressure "$pressure" bar demo-anomaly
+      send_telemetry moisture "$moisture" percent demo-anomaly
+      send_telemetry drive_load "$drive_load" percent demo-anomaly
+
+      sleep 1
+    done
+
+    echo "Anomaly scenario sent"
+    ;;
+
+  *)
+    echo "Usage: $0 {normal|warning|critical|anomaly}"
+    exit 1
+    ;;
+esac
+```
+
+Сделать файл исполняемым:
+
+```bash
+chmod +x scripts/demo.sh
+```
+
+---
+
+## Симулятор телеметрии
+
+Если включён симулятор, он может отправлять данные автоматически.
+
+Пример переменных:
+
+```env
+SIMULATOR_MODE=normal
+SIMULATOR_INTERVAL=2s
+SIMULATOR_SOURCE_ID=http-simulator
+```
+
+Возможные режимы зависят от реализации симулятора проекта.
+
+---
+
+## Основная логика расчёта индекса качества
+
+Индекс качества начинается со значения `100`.
+
+На него влияют:
+
+- активные warning-события;
+- активные critical-события;
+- обнаруженные аномалии;
+- веса параметров.
+
+Чем серьёзнее отклонение, тем сильнее снижается индекс.
+
+Пример:
+
+```text
+нет событий и аномалий → индекс около 100
+warning-событие → индекс снижается умеренно
+critical-событие → индекс снижается сильнее
+комбинированная аномалия → индекс дополнительно снижается
+```
+
+---
+
+## Что показывать на защите
+
+Короткий сценарий на 3–5 минут:
+
+```text
+1. Вход в систему.
+2. Обзор текущих параметров.
+3. Нормальный режим: индекс высокий, событий нет.
+4. Warning: появилось предупреждение, индекс снизился.
+5. Critical: появилось критическое событие, индекс снизился сильнее.
+6. Anomaly: система обнаружила нестабильность процесса.
+7. Роли: оператор не меняет уставки, технолог меняет.
+```
+
+---
+
+## Полезные команды
+
+Запуск:
+
+```bash
+make compose-up
+```
+
+Остановка:
+
+```bash
+make compose-down
+```
+
+Тесты:
+
+```bash
+go test ./...
+```
+
+Покрытие:
+
+```bash
+go test ./... -cover
+```
+
+HTML-отчёт покрытия:
+
+```bash
+go test ./... -coverprofile=coverage.out
+go tool cover -html=coverage.out
+```
+
+Просмотр контейнеров:
+
+```bash
+docker compose ps
+```
+
+Логи backend:
+
+```bash
+docker compose logs -f backend
+```
+
+Логи Kafka:
+
+```bash
+docker compose logs -f kafka
+```
+
+Логи PostgreSQL:
+
+```bash
+docker compose logs -f postgres
+```
+
+---
+
+## Статус проекта
+
+Реализовано:
+
+- приём телеметрии;
+- хранение телеметрии;
+- история измерений;
+- уставки;
+- события;
+- подтверждение событий;
+- аномалии;
+- индекс качества;
+- веса качества;
+- роли пользователей;
+- JWT-аутентификация;
+- bcrypt-хеширование паролей;
+- UI оператора/технолога;
+- Docker Compose запуск;
+- тесты;
+- демонстрационные сценарии.
+
+---
+
+## Назначение проекта
+
+Проект разработан как информационно-аналитическая система для контроля качества технологического процесса экструзии кормов. Он демонстрирует полный цикл обработки производственных данных: от поступления телеметрии до аналитической оценки состояния процесса и отображения результата пользователю.

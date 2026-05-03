@@ -2,14 +2,53 @@ const refreshIntervalMs = 2000;
 const authTokenStorageKey = "authToken";
 
 const parameterNames = {
-    pressure: "Pressure",
-    moisture: "Moisture",
-    barrel_temperature_zone_1: "Barrel temperature zone 1",
-    barrel_temperature_zone_2: "Barrel temperature zone 2",
-    barrel_temperature_zone_3: "Barrel temperature zone 3",
-    screw_speed: "Screw speed",
-    drive_load: "Drive load",
-    outlet_temperature: "Outlet temperature"
+    pressure: "Давление",
+    moisture: "Влажность",
+    barrel_temperature_zone_1: "Температура зоны 1",
+    barrel_temperature_zone_2: "Температура зоны 2",
+    barrel_temperature_zone_3: "Температура зоны 3",
+    screw_speed: "Скорость шнека",
+    drive_load: "Нагрузка привода",
+    outlet_temperature: "Температура продукта на выходе",
+    process_risk: "Риск нестабильности процесса"
+};
+
+const unitNames = {
+    bar: "бар",
+    percent: "%",
+    celsius: "°C",
+    rpm: "об/мин"
+};
+
+const stateNames = {
+    stable: "стабильно",
+    warning: "предупреждение",
+    unstable: "нестабильно",
+    critical: "критично",
+    normal: "норма"
+};
+
+const roleNames = {
+    operator: "оператор",
+    technologist: "технолог",
+    admin: "администратор"
+};
+
+const eventLevelNames = {
+    warning: "предупреждение",
+    critical: "критично"
+};
+
+const eventStatusNames = {
+    active: "активно",
+    acknowledged: "подтверждено",
+    resolved: "устранено"
+};
+
+const anomalyTypeNames = {
+    jump: "скачок",
+    drift: "дрейф",
+    combined_risk: "комбинированный риск"
 };
 
 let currentUser = null;
@@ -19,6 +58,7 @@ let dashboardIntervalID = null;
 let historyIntervalID = null;
 let setpoints = [];
 let users = [];
+let activeTab = "overview";
 
 function canManageSetpoints() {
     return currentUser?.role === "technologist" || currentUser?.role === "admin";
@@ -38,6 +78,92 @@ function canManageUsers() {
 
 function canViewQualityWeights() {
     return currentUser?.role === "technologist" || currentUser?.role === "admin";
+}
+
+function formatUnit(unit) {
+    return unitNames[unit] || unit || "—";
+}
+
+function formatState(state) {
+    return stateNames[state] || state || "неизвестно";
+}
+
+function formatRole(role) {
+    return roleNames[role] || role || "—";
+}
+
+function formatParameter(parameterType) {
+    return parameterNames[parameterType] || parameterType || "—";
+}
+
+function formatEventLevel(level) {
+    return eventLevelNames[level] || level || "—";
+}
+
+function formatEventStatus(status) {
+    return eventStatusNames[status] || status || "—";
+}
+
+function formatAnomalyType(type) {
+    return anomalyTypeNames[type] || type || "аномалия";
+}
+
+function formatTelemetryValue(value, unit) {
+    return `${formatNumber(value)} ${formatUnit(unit)}`;
+}
+
+function formatAlertMessage(event) {
+    const parameter = formatParameter(event.parameterType);
+    const value = formatTelemetryValue(event.value, event.unit);
+
+    if (event.level === "critical") {
+        return `Критическое отклонение параметра «${parameter}»: ${value}.`;
+    }
+
+    if (event.level === "warning") {
+        return `Предупредительное отклонение параметра «${parameter}»: ${value}.`;
+    }
+
+    return `Отклонение параметра «${parameter}»: ${value}.`;
+}
+
+function formatAnomalyMessage(anomaly) {
+    const parameter = formatParameter(anomaly.parameterType);
+
+    if (anomaly.type === "jump") {
+        return `Обнаружен резкий скачок параметра «${parameter}».`;
+    }
+
+    if (anomaly.type === "drift") {
+        return `Обнаружен устойчивый дрейф параметра «${parameter}» за последние измерения.`;
+    }
+
+    if (anomaly.type === "combined_risk") {
+        return "Обнаружен комбинированный риск нестабильности процесса: влажность снижается, а давление и нагрузка привода растут.";
+    }
+
+    return anomaly.message || "Обнаружена аномалия технологического процесса.";
+}
+
+function switchTab(tabName) {
+    activeTab = tabName;
+
+    document.querySelectorAll(".tab-button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.tab === tabName);
+    });
+
+    document.querySelectorAll(".tab-panel").forEach((panel) => {
+        panel.classList.remove("active");
+    });
+
+    const activePanel = document.getElementById(`${tabName}Tab`);
+    if (activePanel) {
+        activePanel.classList.add("active");
+    }
+
+    if (tabName === "history") {
+        drawHistoryChart(lastHistoryReadings);
+    }
 }
 
 function applyRolePermissions() {
@@ -61,6 +187,11 @@ function applyRolePermissions() {
         usersSection.classList.toggle("hidden", !canManageUsers());
     }
 
+    const usersTabButton = document.querySelector('[data-tab="users"]');
+    if (usersTabButton) {
+        usersTabButton.classList.toggle("hidden", !canManageUsers());
+    }
+
     const qualityWeightsSection = document.getElementById("qualityWeightsSection");
     if (qualityWeightsSection) {
         qualityWeightsSection.classList.toggle("hidden", !canViewQualityWeights());
@@ -69,12 +200,7 @@ function applyRolePermissions() {
 
 async function loadCurrentUser() {
     currentUser = await fetchJSON("/api/me");
-
     applyRolePermissions();
-
-    window.dispatchEvent(new CustomEvent("extrusion:user-loaded", {
-        detail: currentUser
-    }));
 }
 
 function renderUserPanel() {
@@ -94,19 +220,17 @@ function renderUserPanel() {
     userPanel.classList.remove("hidden");
     dashboard.classList.remove("hidden");
 
-    currentUserInfo.textContent = `Пользователь: ${currentUser.username}, роль: ${currentUser.role}`;
+    currentUserInfo.textContent = `${currentUser.username} · ${formatRole(currentUser.role)}`;
 }
 
 function showError(message) {
     const errorElement = document.getElementById("error");
-
     errorElement.textContent = message;
     errorElement.style.display = "block";
 }
 
 function hideError() {
     const errorElement = document.getElementById("error");
-
     errorElement.textContent = "";
     errorElement.style.display = "none";
 }
@@ -160,11 +284,9 @@ async function readAPIError(response) {
             return "Пользователь с таким логином уже существует";
 
         case "password must contain at least 12 characters":
-            return "Пароль должен содержать минимум 12 символов";
-
         case "new_password_too_short":
         case "new password must contain at least 12 characters":
-            return "Новый пароль должен содержать минимум 12 символов";
+            return "Пароль должен содержать минимум 12 символов";
 
         case "old_password_required":
         case "old password is required":
@@ -193,9 +315,6 @@ async function readAPIError(response) {
         case "setpoint not found":
             return "Уставка не найдена";
 
-        case "failed to update setpoint":
-            return "Не удалось обновить уставку";
-
         case "quality_weight_not_found":
         case "quality weight not found":
             return "Вес параметра не найден";
@@ -212,11 +331,7 @@ async function readAPIError(response) {
             return serverMessage || "Ошибка валидации";
 
         default:
-            if (serverMessage) {
-                return serverMessage;
-            }
-
-            return `Ошибка запроса: ${response.status}`;
+            return serverMessage || `Ошибка запроса: ${response.status}`;
     }
 }
 
@@ -274,7 +389,6 @@ async function login() {
         const result = await response.json();
 
         localStorage.setItem(authTokenStorageKey, result.token);
-
         passwordInput.value = "";
 
         await initializeAuthenticatedDashboard();
@@ -294,7 +408,6 @@ function logout() {
     users = [];
 
     stopPolling();
-
     clearSensitiveForms();
     renderUserPanel();
     applyRolePermissions();
@@ -311,25 +424,22 @@ function clearSensitiveForms() {
 
     for (const fieldID of passwordFields) {
         const element = document.getElementById(fieldID);
-
         if (element) {
             element.value = "";
         }
     }
 
-    const changePasswordResult = document.getElementById("changePasswordResult");
-    if (changePasswordResult) {
-        changePasswordResult.textContent = "";
-    }
+    const resultElements = [
+        "changePasswordResult",
+        "userResult",
+        "setpointResult"
+    ];
 
-    const userResult = document.getElementById("userResult");
-    if (userResult) {
-        userResult.textContent = "";
-    }
-
-    const setpointResult = document.getElementById("setpointResult");
-    if (setpointResult) {
-        setpointResult.textContent = "";
+    for (const elementID of resultElements) {
+        const element = document.getElementById(elementID);
+        if (element) {
+            element.textContent = "";
+        }
     }
 }
 
@@ -337,11 +447,6 @@ async function changeOwnPassword() {
     const oldPasswordInput = document.getElementById("changeOldPassword");
     const newPasswordInput = document.getElementById("changeNewPassword");
     const resultElement = document.getElementById("changePasswordResult");
-
-    const payload = {
-        oldPassword: oldPasswordInput.value,
-        newPassword: newPasswordInput.value
-    };
 
     try {
         hideError();
@@ -351,7 +456,10 @@ async function changeOwnPassword() {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({
+                oldPassword: oldPasswordInput.value,
+                newPassword: newPasswordInput.value
+            })
         });
 
         oldPasswordInput.value = "";
@@ -418,6 +526,14 @@ function formatDate(value) {
     }
 
     return new Date(value).toLocaleString();
+}
+
+function formatTime(value) {
+    if (!value) {
+        return "";
+    }
+
+    return new Date(value).toLocaleTimeString();
 }
 
 function formatNumber(value) {
@@ -542,8 +658,8 @@ function renderQuality(quality) {
     const valueElement = document.getElementById("qualityValue");
     const stateElement = document.getElementById("qualityState");
 
-    valueElement.textContent = `Quality Index: ${formatNumber(quality.value)}`;
-    stateElement.textContent = quality.state;
+    valueElement.textContent = formatNumber(quality.value);
+    stateElement.textContent = formatState(quality.state);
 
     stateElement.className = "quality-state";
     stateElement.classList.add(quality.state || "unknown");
@@ -555,13 +671,12 @@ async function loadQualityWeights() {
     }
 
     const weights = await fetchJSON("/api/quality/weights");
-
     renderQualityWeights(weights);
 }
 
 async function saveQualityWeight(weightId) {
     if (!canViewQualityWeights()) {
-        showError("quality weights are not available for current role");
+        showError("Раздел весов качества недоступен для текущей роли");
         return;
     }
 
@@ -576,9 +691,7 @@ async function saveQualityWeight(weightId) {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-                weight
-            })
+            body: JSON.stringify({ weight })
         });
 
         await loadQualityWeights();
@@ -595,19 +708,19 @@ function renderQualityWeights(weights) {
     }
 
     if (!weights || weights.length === 0) {
-        container.innerHTML = `<div class="empty">No quality weights configured</div>`;
+        container.innerHTML = `<div class="empty">Веса параметров качества не настроены.</div>`;
         return;
     }
 
     container.innerHTML = weights.map((item) => {
-        const name = parameterNames[item.parameterType] || item.parameterType;
+        const name = formatParameter(item.parameterType);
 
         return `
       <article class="parameter-card">
         <div class="parameter-name">${escapeHTML(name)}</div>
 
         <div class="control-group">
-          <label for="qualityWeight_${item.id}">Weight</label>
+          <label for="qualityWeight_${item.id}">Вес</label>
           <input
             id="qualityWeight_${item.id}"
             type="number"
@@ -619,13 +732,13 @@ function renderQualityWeights(weights) {
         </div>
 
         <div class="parameter-meta">
-          Parameter: ${escapeHTML(item.parameterType)}<br />
-          Updated at: ${formatDate(item.updatedAt)}<br />
-          Updated by: ${escapeHTML(item.updatedBy || "—")}
+          Параметр: ${escapeHTML(name)}<br />
+          Обновлено: ${formatDate(item.updatedAt)}<br />
+          Кем обновлено: ${escapeHTML(item.updatedBy || "—")}
         </div>
 
         <button onclick="saveQualityWeight(${item.id})">
-          Save weight
+          Сохранить вес
         </button>
       </article>
     `;
@@ -636,20 +749,20 @@ function renderParameters(readings) {
     const container = document.getElementById("parameters");
 
     if (!readings || readings.length === 0) {
-        container.innerHTML = `<div class="empty">No telemetry readings yet</div>`;
+        container.innerHTML = `<div class="empty">Измерения телеметрии пока не поступали.</div>`;
         return;
     }
 
     container.innerHTML = readings.map((reading) => {
-        const name = parameterNames[reading.parameterType] || reading.parameterType;
+        const name = formatParameter(reading.parameterType);
 
         return `
       <article class="parameter-card">
         <div class="parameter-name">${escapeHTML(name)}</div>
-        <div class="parameter-value">${formatNumber(reading.value)} ${escapeHTML(reading.unit)}</div>
+        <div class="parameter-value">${escapeHTML(formatTelemetryValue(reading.value, reading.unit))}</div>
         <div class="parameter-meta">
-          Source: ${escapeHTML(reading.sourceId)}<br />
-          Measured at: ${formatDate(reading.measuredAt)}
+          Источник: ${escapeHTML(reading.sourceId)}<br />
+          Измерено: ${formatDate(reading.measuredAt)}
         </div>
       </article>
     `;
@@ -660,28 +773,33 @@ function renderEvents(events) {
     const container = document.getElementById("events");
 
     if (!events || events.length === 0) {
-        container.innerHTML = `<div class="empty">No active events</div>`;
+        container.innerHTML = `<div class="empty">Активных событий нет.</div>`;
         return;
     }
 
     container.innerHTML = events.map((event) => {
         const isAcknowledged = event.status === "acknowledged";
-        const buttonText = isAcknowledged ? "Acknowledged" : "Acknowledge";
+        const buttonText = isAcknowledged ? "Подтверждено" : "Подтвердить";
         const disabled = isAcknowledged ? "disabled" : "";
+        const parameter = formatParameter(event.parameterType);
+        const level = formatEventLevel(event.level);
+        const status = formatEventStatus(event.status);
+        const message = formatAlertMessage(event);
+        const eventClass = event.level === "critical" ? "event-critical" : "event-warning";
 
         return `
-      <article class="event-card">
+      <article class="event-card ${eventClass}">
         <div class="event-header">
-          <div class="event-level">${escapeHTML(event.level)} · ${escapeHTML(event.parameterType)}</div>
-          <div class="event-status">${escapeHTML(event.status)}</div>
+          <div class="event-level">${escapeHTML(level)} · ${escapeHTML(parameter)}</div>
+          <div class="event-status">${escapeHTML(status)}</div>
         </div>
 
-        <div class="event-message">${escapeHTML(event.message)}</div>
+        <div class="event-message">${escapeHTML(message)}</div>
 
         <div class="event-meta">
-          Created at: ${formatDate(event.createdAt)}<br />
-          Value: ${formatNumber(event.value)} ${escapeHTML(event.unit)}<br />
-          Source: ${escapeHTML(event.sourceId)}
+          Создано: ${formatDate(event.createdAt)}<br />
+          Значение: ${escapeHTML(formatTelemetryValue(event.value, event.unit))}<br />
+          Источник: ${escapeHTML(event.sourceId)}
         </div>
 
         <button ${disabled} onclick="acknowledgeEvent(${event.id})">
@@ -700,25 +818,32 @@ function renderAnomalies(anomalies) {
     }
 
     if (!anomalies || anomalies.length === 0) {
-        container.innerHTML = `<div class="empty">No active anomalies</div>`;
+        container.innerHTML = `<div class="empty">Активных аномалий нет.</div>`;
         return;
     }
 
     container.innerHTML = anomalies.map((anomaly) => {
+        const level = formatEventLevel(anomaly.level);
+        const type = formatAnomalyType(anomaly.type);
+        const status = formatEventStatus(anomaly.status);
+        const parameter = formatParameter(anomaly.parameterType);
+        const message = formatAnomalyMessage(anomaly);
+        const eventClass = anomaly.level === "critical" ? "event-critical" : "event-warning";
+
         return `
-      <article class="event-card">
+      <article class="event-card ${eventClass}">
         <div class="event-header">
-          <div class="event-level">${escapeHTML(anomaly.level)} · ${escapeHTML(anomaly.type)}</div>
-          <div class="event-status">${escapeHTML(anomaly.status)}</div>
+          <div class="event-level">${escapeHTML(level)} · ${escapeHTML(type)}</div>
+          <div class="event-status">${escapeHTML(status)}</div>
         </div>
 
-        <div class="event-message">${escapeHTML(anomaly.message)}</div>
+        <div class="event-message">${escapeHTML(message)}</div>
 
         <div class="event-meta">
-          Parameter: ${escapeHTML(anomaly.parameterType)}<br />
-          Observed at: ${formatDate(anomaly.observedAt)}<br />
-          Updated at: ${formatDate(anomaly.updatedAt)}<br />
-          Source: ${escapeHTML(anomaly.sourceId)}
+          Параметр: ${escapeHTML(parameter)}<br />
+          Обнаружено: ${formatDate(anomaly.observedAt)}<br />
+          Обновлено: ${formatDate(anomaly.updatedAt)}<br />
+          Источник: ${escapeHTML(anomaly.sourceId)}
         </div>
       </article>
     `;
@@ -729,24 +854,24 @@ function renderHistoryList(readings) {
     const container = document.getElementById("history");
 
     if (!readings || readings.length === 0) {
-        container.innerHTML = `<div class="empty">No history found for selected parameter</div>`;
+        container.innerHTML = `<div class="empty">История по выбранному параметру не найдена.</div>`;
         return;
     }
 
     container.innerHTML = readings.slice().reverse().map((reading) => {
-        const name = parameterNames[reading.parameterType] || reading.parameterType;
+        const name = formatParameter(reading.parameterType);
 
         return `
       <article class="history-card">
         <div class="history-header">
-          <div class="history-value">${formatNumber(reading.value)} ${escapeHTML(reading.unit)}</div>
+          <div class="history-value">${escapeHTML(formatTelemetryValue(reading.value, reading.unit))}</div>
           <div class="history-time">${formatDate(reading.measuredAt)}</div>
         </div>
 
         <div class="history-meta">
-          Parameter: ${escapeHTML(name)}<br />
-          Source: ${escapeHTML(reading.sourceId)}<br />
-          Created at: ${formatDate(reading.createdAt)}
+          Параметр: ${escapeHTML(name)}<br />
+          Источник: ${escapeHTML(reading.sourceId)}<br />
+          Сохранено: ${formatDate(reading.createdAt)}
         </div>
       </article>
     `;
@@ -761,15 +886,14 @@ function drawHistoryChart(readings) {
     }
 
     const wrapper = canvas.parentElement;
-
     if (!wrapper) {
         return;
     }
 
     const ctx = canvas.getContext("2d");
 
-    const width = wrapper.clientWidth - 24;
-    const height = 260;
+    const width = Math.max(wrapper.clientWidth - 28, 320);
+    const height = 250;
     const ratio = window.devicePixelRatio || 1;
 
     canvas.width = width * ratio;
@@ -780,15 +904,15 @@ function drawHistoryChart(readings) {
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
-    const paddingLeft = 44;
-    const paddingRight = 16;
-    const paddingTop = 20;
-    const paddingBottom = 36;
+    const paddingLeft = 48;
+    const paddingRight = 20;
+    const paddingTop = 26;
+    const paddingBottom = 42;
 
     const plotWidth = width - paddingLeft - paddingRight;
     const plotHeight = height - paddingTop - paddingBottom;
 
-    ctx.strokeStyle = "#d0d5dd";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.36)";
     ctx.lineWidth = 1;
 
     ctx.beginPath();
@@ -798,38 +922,69 @@ function drawHistoryChart(readings) {
     ctx.stroke();
 
     if (!readings || readings.length === 0) {
-        ctx.fillStyle = "#667085";
+        ctx.fillStyle = "#64748b";
         ctx.font = "14px Arial";
-        ctx.fillText("No data", paddingLeft + 10, paddingTop + 30);
+        ctx.fillText("Нет данных для построения графика", paddingLeft + 10, paddingTop + 30);
         return;
     }
 
-    const values = readings.map((reading) => reading.value);
+    const values = readings.map((reading) => Number(reading.value)).filter((value) => Number.isFinite(value));
+
+    if (values.length === 0) {
+        ctx.fillStyle = "#64748b";
+        ctx.font = "14px Arial";
+        ctx.fillText("Нет числовых данных", paddingLeft + 10, paddingTop + 30);
+        return;
+    }
+
     let minValue = Math.min(...values);
     let maxValue = Math.max(...values);
 
     if (minValue === maxValue) {
-        minValue -= 1;
-        maxValue += 1;
+        const delta = Math.max(Math.abs(minValue) * 0.08, 1);
+        minValue -= delta;
+        maxValue += delta;
+    } else {
+        const padding = (maxValue - minValue) * 0.12;
+        minValue -= padding;
+        maxValue += padding;
     }
 
     const valueRange = maxValue - minValue;
 
-    ctx.fillStyle = "#667085";
-    ctx.font = "12px Arial";
-    ctx.fillText(formatNumber(maxValue), 4, paddingTop + 4);
-    ctx.fillText(formatNumber(minValue), 4, paddingTop + plotHeight);
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.18)";
+    ctx.lineWidth = 1;
 
-    ctx.strokeStyle = "#2563eb";
-    ctx.lineWidth = 2;
+    for (let i = 1; i <= 3; i++) {
+        const y = paddingTop + (plotHeight / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(paddingLeft, y);
+        ctx.lineTo(paddingLeft + plotWidth, y);
+        ctx.stroke();
+    }
+
+    ctx.fillStyle = "#64748b";
+    ctx.font = "12px Arial";
+    ctx.fillText(formatNumber(maxValue), 6, paddingTop + 4);
+    ctx.fillText(formatNumber(minValue), 6, paddingTop + plotHeight);
+
+    const gradient = ctx.createLinearGradient(paddingLeft, 0, paddingLeft + plotWidth, 0);
+    gradient.addColorStop(0, "#64748b");
+    gradient.addColorStop(0.45, "#b45f82");
+    gradient.addColorStop(1, "#9a647c");
+
+    ctx.strokeStyle = gradient;
+    ctx.lineWidth = 2.4;
     ctx.beginPath();
 
     readings.forEach((reading, index) => {
+        const value = Number(reading.value);
+
         const x = readings.length === 1
             ? paddingLeft + plotWidth / 2
             : paddingLeft + (index / (readings.length - 1)) * plotWidth;
 
-        const y = paddingTop + plotHeight - ((reading.value - minValue) / valueRange) * plotHeight;
+        const y = paddingTop + plotHeight - ((value - minValue) / valueRange) * plotHeight;
 
         if (index === 0) {
             ctx.moveTo(x, y);
@@ -841,40 +996,34 @@ function drawHistoryChart(readings) {
 
     ctx.stroke();
 
-    ctx.fillStyle = "#2563eb";
+    ctx.fillStyle = "#9a647c";
 
     readings.forEach((reading, index) => {
+        const value = Number(reading.value);
+
         const x = readings.length === 1
             ? paddingLeft + plotWidth / 2
             : paddingLeft + (index / (readings.length - 1)) * plotWidth;
 
-        const y = paddingTop + plotHeight - ((reading.value - minValue) / valueRange) * plotHeight;
+        const y = paddingTop + plotHeight - ((value - minValue) / valueRange) * plotHeight;
 
         ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.arc(x, y, 3.2, 0, Math.PI * 2);
         ctx.fill();
     });
 
     const firstTime = readings[0]?.measuredAt;
     const lastTime = readings[readings.length - 1]?.measuredAt;
 
-    ctx.fillStyle = "#667085";
+    ctx.fillStyle = "#64748b";
     ctx.font = "12px Arial";
 
-    ctx.fillText(
-        firstTime ? new Date(firstTime).toLocaleTimeString() : "",
-        paddingLeft,
-        height - 10
-    );
+    ctx.fillText(formatTime(firstTime), paddingLeft, height - 14);
 
-    const lastLabel = lastTime ? new Date(lastTime).toLocaleTimeString() : "";
+    const lastLabel = formatTime(lastTime);
     const lastLabelWidth = ctx.measureText(lastLabel).width;
 
-    ctx.fillText(
-        lastLabel,
-        paddingLeft + plotWidth - lastLabelWidth,
-        height - 10
-    );
+    ctx.fillText(lastLabel, paddingLeft + plotWidth - lastLabelWidth, height - 14);
 }
 
 async function acknowledgeEvent(eventId) {
@@ -916,7 +1065,7 @@ async function refreshDashboard() {
 
 async function loadTelemetryHistory() {
     if (!canViewHistory()) {
-        showError("history is not available for current role");
+        showError("История недоступна для текущей роли");
         return;
     }
 
@@ -931,10 +1080,10 @@ async function loadTelemetryHistory() {
         hideError();
 
         button.disabled = true;
-        button.textContent = "Loading...";
+        button.textContent = "Загружаем...";
 
         const parameter = document.getElementById("historyParameter").value;
-        const limit = document.getElementById("historyLimit").value || "200";
+        const limit = document.getElementById("historyLimit").value || "30";
         const range = resolveHistoryRange();
 
         const params = new URLSearchParams();
@@ -961,7 +1110,7 @@ async function loadTelemetryHistory() {
     } finally {
         historyIsLoading = false;
         button.disabled = false;
-        button.textContent = "Load history";
+        button.textContent = "Загрузить историю";
     }
 }
 
@@ -978,7 +1127,7 @@ async function loadSetpoints() {
     for (const setpoint of setpoints) {
         const option = document.createElement("option");
         option.value = setpoint.id;
-        option.textContent = `${setpoint.parameterType} (${setpoint.unit})`;
+        option.textContent = `${formatParameter(setpoint.parameterType)} (${formatUnit(setpoint.unit)})`;
         select.appendChild(option);
     }
 
@@ -1003,7 +1152,7 @@ function fillSetpointForm() {
 
 async function saveSetpoint() {
     if (!canManageSetpoints()) {
-        showError("setpoints are not available for current role");
+        showError("Уставки недоступны для текущей роли");
         return;
     }
 
@@ -1027,7 +1176,8 @@ async function saveSetpoint() {
             body: JSON.stringify(payload)
         });
 
-        document.getElementById("setpointResult").textContent = JSON.stringify(result, null, 2);
+        document.getElementById("setpointResult").textContent =
+            `Уставка сохранена: ${formatParameter(result.parameterType)}`;
 
         await loadSetpoints();
     } catch (error) {
@@ -1052,15 +1202,15 @@ function renderUsers(usersToRender) {
     }
 
     if (!usersToRender || usersToRender.length === 0) {
-        container.innerHTML = `<div class="empty">No users found</div>`;
+        container.innerHTML = `<div class="empty">Пользователи не найдены.</div>`;
         return;
     }
 
     container.innerHTML = usersToRender.map((user) => {
-        const activeText = user.isActive ? "active" : "inactive";
+        const activeText = user.isActive ? "активен" : "деактивирован";
         const activeButton = user.isActive
-            ? `<button class="danger-button" onclick="deactivateUser(${user.id})">Deactivate</button>`
-            : `<button class="success-button" onclick="activateUser(${user.id})">Activate</button>`;
+            ? `<button class="danger-button" onclick="deactivateUser(${user.id})">Деактивировать</button>`
+            : `<button class="success-button" onclick="activateUser(${user.id})">Активировать</button>`;
 
         return `
       <article class="user-card">
@@ -1070,23 +1220,23 @@ function renderUsers(usersToRender) {
         </div>
 
         <div class="user-meta">
-          Role: ${escapeHTML(user.role)}<br />
-          Created at: ${formatDate(user.createdAt)}<br />
-          Updated at: ${formatDate(user.updatedAt)}
+          Роль: ${escapeHTML(formatRole(user.role))}<br />
+          Создан: ${formatDate(user.createdAt)}<br />
+          Обновлён: ${formatDate(user.updatedAt)}
         </div>
 
         <div class="user-actions">
           <div class="control-group">
-            <label for="userRole_${user.id}">Role</label>
+            <label for="userRole_${user.id}">Роль</label>
             <select id="userRole_${user.id}">
-              <option value="operator" ${user.role === "operator" ? "selected" : ""}>operator</option>
-              <option value="technologist" ${user.role === "technologist" ? "selected" : ""}>technologist</option>
-              <option value="admin" ${user.role === "admin" ? "selected" : ""}>admin</option>
+              <option value="operator" ${user.role === "operator" ? "selected" : ""}>Оператор</option>
+              <option value="technologist" ${user.role === "technologist" ? "selected" : ""}>Технолог</option>
+              <option value="admin" ${user.role === "admin" ? "selected" : ""}>Администратор</option>
             </select>
           </div>
 
           <div class="control-group">
-            <button onclick="updateUserRole(${user.id})">Update role</button>
+            <button onclick="updateUserRole(${user.id})">Изменить роль</button>
           </div>
 
           <div class="control-group">
@@ -1094,12 +1244,12 @@ function renderUsers(usersToRender) {
           </div>
 
           <div class="control-group">
-            <label for="resetPassword_${user.id}">New password</label>
+            <label for="resetPassword_${user.id}">Новый пароль</label>
             <input id="resetPassword_${user.id}" type="password" placeholder="минимум 12 символов">
           </div>
 
           <div class="control-group">
-            <button class="secondary-button" onclick="resetUserPassword(${user.id})">Reset password</button>
+            <button class="secondary-button" onclick="resetUserPassword(${user.id})">Сбросить пароль</button>
           </div>
         </div>
       </article>
@@ -1109,7 +1259,7 @@ function renderUsers(usersToRender) {
 
 async function createUser() {
     if (!canManageUsers()) {
-        showError("users management is not available for current role");
+        showError("Управление пользователями недоступно для текущей роли");
         return;
     }
 
@@ -1120,23 +1270,21 @@ async function createUser() {
     const roleInput = document.getElementById("newUserRole");
     const isActiveInput = document.getElementById("newUserIsActive");
 
-    const payload = {
-        username: usernameInput.value.trim(),
-        password: passwordInput.value,
-        role: roleInput.value,
-        isActive: isActiveInput.checked
-    };
-
     try {
         const result = await fetchJSON("/api/users", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({
+                username: usernameInput.value.trim(),
+                password: passwordInput.value,
+                role: roleInput.value,
+                isActive: isActiveInput.checked
+            })
         });
 
-        resultElement.textContent = JSON.stringify(result, null, 2);
+        resultElement.textContent = `Пользователь создан: ${result.username}`;
 
         usernameInput.value = "";
         passwordInput.value = "";
@@ -1151,7 +1299,7 @@ async function createUser() {
 
 async function updateUserRole(userId) {
     if (!canManageUsers()) {
-        showError("users management is not available for current role");
+        showError("Управление пользователями недоступно для текущей роли");
         return;
     }
 
@@ -1163,12 +1311,11 @@ async function updateUserRole(userId) {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-                role
-            })
+            body: JSON.stringify({ role })
         });
 
-        document.getElementById("userResult").textContent = JSON.stringify(result, null, 2);
+        document.getElementById("userResult").textContent =
+            `Роль пользователя ${result.username} изменена на ${formatRole(result.role)}`;
 
         await loadUsers();
     } catch (error) {
@@ -1186,7 +1333,7 @@ async function deactivateUser(userId) {
 
 async function setUserActive(userId, isActive) {
     if (!canManageUsers()) {
-        showError("users management is not available for current role");
+        showError("Управление пользователями недоступно для текущей роли");
         return;
     }
 
@@ -1197,7 +1344,10 @@ async function setUserActive(userId, isActive) {
             method: "POST"
         });
 
-        document.getElementById("userResult").textContent = JSON.stringify(result, null, 2);
+        document.getElementById("userResult").textContent =
+            isActive
+                ? `Пользователь ${result.username} активирован`
+                : `Пользователь ${result.username} деактивирован`;
 
         await loadUsers();
     } catch (error) {
@@ -1207,7 +1357,7 @@ async function setUserActive(userId, isActive) {
 
 async function resetUserPassword(userId) {
     if (!canManageUsers()) {
-        showError("users management is not available for current role");
+        showError("Управление пользователями недоступно для текущей роли");
         return;
     }
 
@@ -1220,14 +1370,13 @@ async function resetUserPassword(userId) {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-                password
-            })
+            body: JSON.stringify({ password })
         });
 
         passwordInput.value = "";
 
-        document.getElementById("userResult").textContent = JSON.stringify(result, null, 2);
+        document.getElementById("userResult").textContent =
+            `Пароль пользователя ${result.username} сброшен`;
 
         await loadUsers();
     } catch (error) {
@@ -1260,7 +1409,7 @@ async function startDashboard() {
     }
 
     window.addEventListener("resize", () => {
-        if (canViewHistory()) {
+        if (canViewHistory() && activeTab === "history") {
             drawHistoryChart(lastHistoryReadings);
         }
     });
@@ -1270,6 +1419,7 @@ window.login = login;
 window.logout = logout;
 window.changeOwnPassword = changeOwnPassword;
 
+window.switchTab = switchTab;
 window.acknowledgeEvent = acknowledgeEvent;
 
 window.loadTelemetryHistory = loadTelemetryHistory;
@@ -1283,11 +1433,6 @@ window.activateUser = activateUser;
 window.deactivateUser = deactivateUser;
 window.resetUserPassword = resetUserPassword;
 
-window.canManageSetpoints = canManageSetpoints;
-window.canViewHistory = canViewHistory;
-window.canViewAnomalies = canViewAnomalies;
-window.canManageUsers = canManageUsers;
-window.canViewQualityWeights = canViewQualityWeights;
 window.saveQualityWeight = saveQualityWeight;
 
 startDashboard();

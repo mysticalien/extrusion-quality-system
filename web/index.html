@@ -3,346 +3,79 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Extrusion Quality Dashboard</title>
+    <title>Панель контроля качества экструзии</title>
 
-    <style>
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            padding: 24px;
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
-            color: #1f2933;
-        }
-
-        header {
-            margin-bottom: 24px;
-        }
-
-        h1 {
-            margin: 0 0 8px;
-            font-size: 28px;
-        }
-
-        h3 {
-            margin: 20px 0 12px;
-            font-size: 17px;
-        }
-
-        .subtitle {
-            color: #667085;
-            font-size: 14px;
-        }
-
-        .layout {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 20px;
-        }
-
-        .quality-card,
-        .section {
-            padding: 20px;
-            border-radius: 14px;
-            background: white;
-            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
-        }
-
-        .quality-card {
-            padding: 24px;
-        }
-
-        .quality-title {
-            font-size: 14px;
-            color: #667085;
-            margin-bottom: 8px;
-        }
-
-        .quality-value {
-            font-size: 42px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .quality-state {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 999px;
-            font-size: 14px;
-            font-weight: 600;
-            background: #e5e7eb;
-        }
-
-        .section h2 {
-            margin: 0 0 16px;
-            font-size: 20px;
-        }
-
-        .parameters-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-            gap: 14px;
-        }
-
-        .parameter-card {
-            padding: 16px;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            background: #fafafa;
-        }
-
-        .parameter-name {
-            font-size: 14px;
-            color: #667085;
-            margin-bottom: 8px;
-        }
-
-        .parameter-value {
-            font-size: 26px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .parameter-meta {
-            font-size: 12px;
-            color: #667085;
-            line-height: 1.4;
-        }
-
-        .events-list,
-        .history-list,
-        .users-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .event-card,
-        .history-card,
-        .user-card {
-            padding: 16px;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            background: #fafafa;
-        }
-
-        .event-header,
-        .history-header,
-        .user-header {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 8px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .event-level,
-        .history-value,
-        .user-name {
-            font-weight: 700;
-        }
-
-        .event-level {
-            text-transform: uppercase;
-        }
-
-        .event-status,
-        .history-time,
-        .user-status {
-            font-size: 13px;
-            color: #667085;
-        }
-
-        .event-message {
-            margin-bottom: 10px;
-            line-height: 1.4;
-        }
-
-        .event-meta,
-        .history-meta,
-        .user-meta {
-            font-size: 12px;
-            color: #667085;
-            margin-bottom: 12px;
-            line-height: 1.4;
-        }
-
-        .history-controls,
-        .user-controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 12px;
-            margin-bottom: 16px;
-            align-items: end;
-        }
-
-        .user-actions {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
-            align-items: end;
-        }
-
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .checkbox-group {
-            justify-content: center;
-            min-height: 58px;
-        }
-
-        .checkbox-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            color: #1f2933;
-            font-size: 14px;
-        }
-
-        .checkbox-label input {
-            width: auto;
-        }
-
-        label {
-            font-size: 13px;
-            color: #667085;
-        }
-
-        select,
-        input {
-            width: 100%;
-            padding: 9px 10px;
-            border-radius: 8px;
-            border: 1px solid #d0d5dd;
-            background: white;
-            font-size: 14px;
-        }
-
-        button {
-            border: none;
-            border-radius: 8px;
-            padding: 10px 12px;
-            cursor: pointer;
-            background: #2563eb;
-            color: white;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        button:disabled {
-            cursor: not-allowed;
-            background: #9ca3af;
-        }
-
-        .secondary-button {
-            background: #475467;
-        }
-
-        .danger-button {
-            background: #dc2626;
-        }
-
-        .success-button {
-            background: #16a34a;
-        }
-
-        .empty {
-            color: #667085;
-            font-size: 14px;
-        }
-
-        .error {
-            padding: 12px;
-            border-radius: 10px;
-            background: #fee2e2;
-            color: #991b1b;
-            margin-bottom: 16px;
-            display: none;
-        }
-
-        .hidden {
-            display: none;
-        }
-
-        .stable {
-            background: #dcfce7;
-            color: #166534;
-        }
-
-        .warning {
-            background: #fef3c7;
-            color: #92400e;
-        }
-
-        .unstable {
-            background: #ffedd5;
-            color: #9a3412;
-        }
-
-        .critical {
-            background: #fee2e2;
-            color: #991b1b;
-        }
-
-        .chart-wrapper {
-            margin-bottom: 16px;
-            padding: 12px;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            background: #fafafa;
-        }
-
-        canvas {
-            width: 100%;
-            height: 260px;
-            display: block;
-        }
-
-        .user-panel-content {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        pre {
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-            padding: 12px;
-            border-radius: 10px;
-            background: #f9fafb;
-            color: #1f2933;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/styles.css?v=40">
 </head>
 
 <body>
-<header>
-    <h1>Extrusion Quality Dashboard</h1>
-    <div class="subtitle">Live monitoring of extrusion process telemetry, alerts and quality index</div>
+<header class="app-header">
+    <section class="header-card system-card">
+        <div class="header-card-label">Производственный мониторинг</div>
+        <h1>Панель контроля качества экструзии</h1>
+        <div class="system-subtitle">Телеметрия · события · аномалии · индекс качества</div>
+    </section>
+
+    <section id="userPanel" class="header-card account-card hidden">
+        <div class="account-row">
+            <div class="account-info">
+                <div class="header-card-label">Личный кабинет</div>
+                <div id="currentUserInfo" class="account-title"></div>
+                <div class="account-subtitle">Пользователь системы мониторинга</div>
+            </div>
+
+            <button class="secondary-button small-button" onclick="logout()">Выйти</button>
+        </div>
+
+        <details class="password-details">
+            <summary>Смена пароля</summary>
+
+            <div class="compact-form">
+                <div class="control-group">
+                    <label for="changeOldPassword">Текущий пароль</label>
+                    <input
+                            id="changeOldPassword"
+                            type="password"
+                            autocomplete="current-password"
+                            placeholder="Введите текущий пароль"
+                    >
+                </div>
+
+                <div class="control-group">
+                    <label for="changeNewPassword">Новый пароль</label>
+                    <input
+                            id="changeNewPassword"
+                            type="password"
+                            autocomplete="new-password"
+                            placeholder="Минимум 12 символов"
+                    >
+                </div>
+
+                <button onclick="changeOwnPassword()">Сменить пароль</button>
+                <pre id="changePasswordResult"></pre>
+            </div>
+        </details>
+    </section>
 </header>
 
 <div id="error" class="error"></div>
 
-<section id="loginSection" class="section">
-    <h2>Вход в систему</h2>
+<section id="loginSection" class="section auth-card">
+    <div class="section-header">
+        <div>
+            <h2>Вход в систему</h2>
+            <p>Введите учётные данные пользователя системы мониторинга.</p>
+        </div>
+    </div>
 
-    <div class="history-controls">
+    <div class="form-grid login-grid">
         <div class="control-group">
-            <label for="loginUsername">Username</label>
+            <label for="loginUsername">Логин</label>
             <input id="loginUsername" type="text" autocomplete="username" placeholder="Введите логин">
         </div>
 
         <div class="control-group">
-            <label for="loginPassword">Password</label>
+            <label for="loginPassword">Пароль</label>
             <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Введите пароль">
         </div>
 
@@ -350,233 +83,269 @@
             <button id="loginButton" onclick="login()">Войти</button>
         </div>
     </div>
-
-    <div class="empty">
-        Войдите под учётной записью пользователя системы.
-    </div>
-</section>
-
-<section id="userPanel" class="section hidden">
-    <div class="user-panel-content">
-        <div id="currentUserInfo" class="subtitle"></div>
-        <button class="secondary-button" onclick="logout()">Выйти</button>
-    </div>
-
-    <h3>Смена пароля</h3>
-
-    <div class="user-controls">
-        <div class="control-group">
-            <label for="changeOldPassword">Текущий пароль</label>
-            <input
-                    id="changeOldPassword"
-                    type="password"
-                    autocomplete="current-password"
-                    placeholder="Введите текущий пароль"
-            >
-        </div>
-
-        <div class="control-group">
-            <label for="changeNewPassword">Новый пароль</label>
-            <input
-                    id="changeNewPassword"
-                    type="password"
-                    autocomplete="new-password"
-                    placeholder="Минимум 12 символов"
-            >
-        </div>
-
-        <div class="control-group">
-            <button onclick="changeOwnPassword()">Сменить пароль</button>
-        </div>
-    </div>
-
-    <pre id="changePasswordResult"></pre>
 </section>
 
 <main id="dashboard" class="layout hidden">
     <section class="quality-card">
-        <div class="quality-title">Current quality index</div>
-        <div id="qualityValue" class="quality-value">Loading...</div>
-        <div id="qualityState" class="quality-state">unknown</div>
-    </section>
-
-    <section id="qualityWeightsSection" class="section hidden">
-        <h2>Quality index weights</h2>
-        <div id="qualityWeights" class="parameters-grid"></div>
-    </section>
-
-    <section class="section">
-        <h2>Current parameters</h2>
-        <div id="parameters" class="parameters-grid"></div>
-    </section>
-
-    <section class="section">
-        <h2>Active events</h2>
-        <div id="events" class="events-list"></div>
-    </section>
-
-    <section id="anomaliesSection" class="section hidden">
-        <h2>Active anomalies</h2>
-        <div id="anomalies" class="events-list"></div>
-    </section>
-
-    <section id="historySection" class="section hidden">
-        <h2>Telemetry history</h2>
-
-        <div class="history-controls">
-            <div class="control-group">
-                <label for="historyParameter">Parameter</label>
-                <select id="historyParameter">
-                    <option value="pressure">Pressure</option>
-                    <option value="moisture">Moisture</option>
-                    <option value="barrel_temperature_zone_1">Barrel temperature zone 1</option>
-                    <option value="barrel_temperature_zone_2">Barrel temperature zone 2</option>
-                    <option value="barrel_temperature_zone_3">Barrel temperature zone 3</option>
-                    <option value="screw_speed">Screw speed</option>
-                    <option value="drive_load">Drive load</option>
-                    <option value="outlet_temperature">Outlet temperature</option>
-                </select>
-            </div>
-
-            <div class="control-group">
-                <label for="historyRange">Period</label>
-                <select id="historyRange" onchange="updateHistoryRangeControls()">
-                    <option value="last_1h">Last hour</option>
-                    <option value="last_2h">Last 2 hours</option>
-                    <option value="today">Today</option>
-                    <option value="last_2d">Last 2 days</option>
-                    <option value="last_7d">Last 7 days</option>
-                    <option value="custom">Custom range</option>
-                </select>
-            </div>
-
-            <div id="customFromGroup" class="control-group hidden">
-                <label for="historyFrom">From</label>
-                <input id="historyFrom" type="datetime-local" />
-            </div>
-
-            <div id="customToGroup" class="control-group hidden">
-                <label for="historyTo">To</label>
-                <input id="historyTo" type="datetime-local" />
-            </div>
-
-            <div class="control-group">
-                <label for="historyLimit">Limit</label>
-                <input id="historyLimit" type="number" min="1" max="1000" value="200" />
-            </div>
-
-            <div class="control-group">
-                <button id="loadHistoryButton" onclick="loadTelemetryHistory()">Load history</button>
-            </div>
-
-            <div class="control-group checkbox-group">
-                <label class="checkbox-label">
-                    <input id="historyAutoRefresh" type="checkbox" />
-                    Auto-refresh history
-                </label>
-            </div>
+        <div class="quality-main">
+            <div class="quality-title">Индекс качества</div>
+            <div id="qualityValue" class="quality-value">—</div>
+            <div id="qualityState" class="quality-state">неизвестно</div>
         </div>
 
-        <div class="chart-wrapper">
-            <canvas id="historyChart"></canvas>
-        </div>
-
-        <div id="history" class="history-list">
-            <div class="empty">Select parameter and load history</div>
+        <div class="quality-side">
+            <div class="quality-side-title">Состояние процесса</div>
+            <div class="quality-hint">
+                Индекс рассчитывается на основе активных событий, аномалий и весов технологических параметров.
+            </div>
         </div>
     </section>
 
-    <section id="setpointsSection" class="section hidden">
-        <h2>Настройка уставок</h2>
+    <nav class="tabs">
+        <button class="tab-button active" data-tab="overview" onclick="switchTab('overview')">Обзор</button>
+        <button class="tab-button" data-tab="events" onclick="switchTab('events')">События</button>
+        <button class="tab-button" data-tab="history" onclick="switchTab('history')">История</button>
+        <button class="tab-button" data-tab="setpoints" onclick="switchTab('setpoints')">Уставки</button>
+        <button class="tab-button" data-tab="quality" onclick="switchTab('quality')">Качество</button>
+        <button class="tab-button hidden" data-tab="users" onclick="switchTab('users')">Пользователи</button>
+    </nav>
 
-        <div class="history-controls">
-            <div class="control-group">
-                <label for="setpointSelect">Parameter</label>
-                <select id="setpointSelect"></select>
+    <section id="overviewTab" class="tab-panel active">
+        <section class="section">
+            <div class="section-header">
+                <div>
+                    <h2>Текущие параметры</h2>
+                    <p>Последние измерения по основным технологическим параметрам.</p>
+                </div>
             </div>
 
-            <div class="control-group">
-                <label for="criticalMin">Critical min</label>
-                <input id="criticalMin" type="number" step="0.01">
-            </div>
-
-            <div class="control-group">
-                <label for="warningMin">Warning min</label>
-                <input id="warningMin" type="number" step="0.01">
-            </div>
-
-            <div class="control-group">
-                <label for="normalMin">Normal min</label>
-                <input id="normalMin" type="number" step="0.01">
-            </div>
-
-            <div class="control-group">
-                <label for="normalMax">Normal max</label>
-                <input id="normalMax" type="number" step="0.01">
-            </div>
-
-            <div class="control-group">
-                <label for="warningMax">Warning max</label>
-                <input id="warningMax" type="number" step="0.01">
-            </div>
-
-            <div class="control-group">
-                <label for="criticalMax">Critical max</label>
-                <input id="criticalMax" type="number" step="0.01">
-            </div>
-
-            <div class="control-group">
-                <button id="saveSetpointButton" onclick="saveSetpoint()">Сохранить уставку</button>
-            </div>
-        </div>
-
-        <pre id="setpointResult"></pre>
+            <div id="parameters" class="parameters-grid"></div>
+        </section>
     </section>
 
-    <section id="usersSection" class="section hidden">
-        <h2>Управление пользователями</h2>
-
-        <h3>Создать пользователя</h3>
-
-        <div class="user-controls">
-            <div class="control-group">
-                <label for="newUsername">Username</label>
-                <input id="newUsername" type="text" placeholder="например: pavel.ivanov">
+    <section id="eventsTab" class="tab-panel">
+        <section class="section">
+            <div class="section-header">
+                <div>
+                    <h2>Активные события</h2>
+                    <p>Предупреждения и критические отклонения, требующие внимания.</p>
+                </div>
             </div>
 
-            <div class="control-group">
-                <label for="newPassword">Password</label>
-                <input id="newPassword" type="password" placeholder="минимум 12 символов">
+            <div id="events" class="events-list"></div>
+        </section>
+
+        <section id="anomaliesSection" class="section hidden">
+            <div class="section-header">
+                <div>
+                    <h2>Активные аномалии</h2>
+                    <p>Обнаруженные скачки, дрейфы и комбинированные риски процесса.</p>
+                </div>
             </div>
 
-            <div class="control-group">
-                <label for="newUserRole">Role</label>
-                <select id="newUserRole">
-                    <option value="operator">operator</option>
-                    <option value="technologist">technologist</option>
-                    <option value="admin">admin</option>
-                </select>
+            <div id="anomalies" class="events-list"></div>
+        </section>
+    </section>
+
+    <section id="historyTab" class="tab-panel">
+        <section id="historySection" class="section hidden">
+            <div class="section-header">
+                <div>
+                    <h2>История телеметрии</h2>
+                    <p>График и список измерений выбранного параметра.</p>
+                </div>
             </div>
 
-            <div class="control-group checkbox-group">
-                <label class="checkbox-label">
-                    <input id="newUserIsActive" type="checkbox" checked>
-                    Active
-                </label>
+            <div class="form-grid history-grid">
+                <div class="control-group">
+                    <label for="historyParameter">Параметр</label>
+                    <select id="historyParameter">
+                        <option value="pressure">Давление</option>
+                        <option value="moisture">Влажность</option>
+                        <option value="barrel_temperature_zone_1">Температура зоны 1</option>
+                        <option value="barrel_temperature_zone_2">Температура зоны 2</option>
+                        <option value="barrel_temperature_zone_3">Температура зоны 3</option>
+                        <option value="screw_speed">Скорость шнека</option>
+                        <option value="drive_load">Нагрузка привода</option>
+                        <option value="outlet_temperature">Температура продукта на выходе</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="historyRange">Период</label>
+                    <select id="historyRange" onchange="updateHistoryRangeControls()">
+                        <option value="last_1h">Последний час</option>
+                        <option value="last_2h">Последние 2 часа</option>
+                        <option value="today">Сегодня</option>
+                        <option value="last_2d">Последние 2 дня</option>
+                        <option value="last_7d">Последние 7 дней</option>
+                        <option value="custom">Произвольный период</option>
+                    </select>
+                </div>
+
+                <div id="customFromGroup" class="control-group hidden">
+                    <label for="historyFrom">С</label>
+                    <input id="historyFrom" type="datetime-local" />
+                </div>
+
+                <div id="customToGroup" class="control-group hidden">
+                    <label for="historyTo">По</label>
+                    <input id="historyTo" type="datetime-local" />
+                </div>
+
+                <div class="control-group history-limit-group">
+                    <label for="historyLimit">Лимит</label>
+                    <input id="historyLimit" type="number" min="1" max="1000" value="30" />
+                </div>
+
+                <div class="control-group">
+                    <button id="loadHistoryButton" onclick="loadTelemetryHistory()">Загрузить историю</button>
+                </div>
+
+                <div class="control-group auto-refresh-group">
+                    <label class="toggle-label" for="historyAutoRefresh">
+                        <input id="historyAutoRefresh" type="checkbox" />
+                        <span class="toggle-switch"></span>
+                        <span class="toggle-text">Автообновление</span>
+                    </label>
+                </div>
             </div>
 
-            <div class="control-group">
-                <button onclick="createUser()">Создать пользователя</button>
+            <div class="chart-wrapper">
+                <canvas id="historyChart"></canvas>
             </div>
-        </div>
 
-        <pre id="userResult"></pre>
+            <div id="history" class="history-list">
+                <div class="empty">Выберите параметр и загрузите историю.</div>
+            </div>
+        </section>
+    </section>
 
-        <h3>Список пользователей</h3>
-        <div id="users" class="users-list"></div>
+    <section id="setpointsTab" class="tab-panel">
+        <section id="setpointsSection" class="section hidden">
+            <div class="section-header">
+                <div>
+                    <h2>Настройка уставок</h2>
+                    <p>Диапазоны нормального, предупредительного и критического состояния.</p>
+                </div>
+            </div>
+
+            <div class="form-grid setpoint-grid">
+                <div class="control-group setpoint-parameter-field">
+                    <label for="setpointSelect">Параметр</label>
+                    <select id="setpointSelect"></select>
+                </div>
+
+                <div class="control-group">
+                    <label for="criticalMin">Крит. минимум</label>
+                    <input id="criticalMin" type="number" step="0.01">
+                </div>
+
+                <div class="control-group">
+                    <label for="warningMin">Пред. минимум</label>
+                    <input id="warningMin" type="number" step="0.01">
+                </div>
+
+                <div class="control-group">
+                    <label for="normalMin">Норма минимум</label>
+                    <input id="normalMin" type="number" step="0.01">
+                </div>
+
+                <div class="control-group">
+                    <label for="normalMax">Норма максимум</label>
+                    <input id="normalMax" type="number" step="0.01">
+                </div>
+
+                <div class="control-group">
+                    <label for="warningMax">Пред. максимум</label>
+                    <input id="warningMax" type="number" step="0.01">
+                </div>
+
+                <div class="control-group">
+                    <label for="criticalMax">Крит. максимум</label>
+                    <input id="criticalMax" type="number" step="0.01">
+                </div>
+
+                <div class="control-group">
+                    <button id="saveSetpointButton" onclick="saveSetpoint()">Сохранить</button>
+                </div>
+            </div>
+
+            <pre id="setpointResult"></pre>
+        </section>
+    </section>
+
+    <section id="qualityTab" class="tab-panel">
+        <section id="qualityWeightsSection" class="section hidden">
+            <div class="section-header">
+                <div>
+                    <h2>Веса параметров качества</h2>
+                    <p>Чем выше вес, тем сильнее отклонение параметра влияет на итоговый индекс.</p>
+                </div>
+            </div>
+
+            <div id="qualityWeights" class="parameters-grid"></div>
+        </section>
+    </section>
+
+    <section id="usersTab" class="tab-panel">
+        <section id="usersSection" class="section hidden">
+            <div class="section-header">
+                <div>
+                    <h2>Управление пользователями</h2>
+                    <p>Создание пользователей, изменение ролей, активация и сброс паролей.</p>
+                </div>
+            </div>
+
+            <details class="collapsible-panel" open>
+                <summary>Создать пользователя</summary>
+
+                <div class="collapsible-content">
+                    <div class="form-grid user-controls">
+                        <div class="control-group">
+                            <label for="newUsername">Логин</label>
+                            <input id="newUsername" type="text" placeholder="например: pavel.ivanov">
+                        </div>
+
+                        <div class="control-group">
+                            <label for="newPassword">Пароль</label>
+                            <input id="newPassword" type="password" placeholder="минимум 12 символов">
+                        </div>
+
+                        <div class="control-group">
+                            <label for="newUserRole">Роль</label>
+                            <select id="newUserRole">
+                                <option value="operator">Оператор</option>
+                                <option value="technologist">Технолог</option>
+                                <option value="admin">Администратор</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group auto-refresh-group">
+                            <label class="toggle-label" for="newUserIsActive">
+                                <input id="newUserIsActive" type="checkbox" checked>
+                                <span class="toggle-switch"></span>
+                                <span class="toggle-text">Активен</span>
+                            </label>
+                        </div>
+
+                        <div class="control-group">
+                            <button onclick="createUser()">Создать</button>
+                        </div>
+                    </div>
+
+                    <pre id="userResult"></pre>
+                </div>
+            </details>
+
+            <details class="collapsible-panel" open>
+                <summary>Список пользователей</summary>
+                <div id="users" class="users-list collapsible-content"></div>
+            </details>
+        </section>
     </section>
 </main>
 
-<script src="/static/app.js?v=30"></script>
+<script src="/static/app.js?v=40"></script>
 </body>
 </html>

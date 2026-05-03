@@ -1,4 +1,7 @@
-FROM golang:1.26.1-alpine AS builder
+ARG GO_IMAGE=golang:1.26.1-alpine
+ARG RUNTIME_IMAGE=alpine:3.22
+
+FROM ${GO_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -15,7 +18,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /out/server ./cmd/server
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/simulator ./cmd/simulator
 
 
-FROM alpine:3.22
+FROM ${RUNTIME_IMAGE}
 
 WORKDIR /app
 

@@ -3,64 +3,45 @@ package httpadapter
 import (
 	"encoding/json"
 	"extrusion-quality-system/internal/domain"
-	"extrusion-quality-system/internal/ingestion"
-	"extrusion-quality-system/internal/storage"
+	"extrusion-quality-system/internal/ports"
+	"extrusion-quality-system/internal/usecase/telemetry"
 	"log/slog"
 	nethttp "net/http"
+	"time"
 )
 
-// TelemetryCreateRequest describes the payload for telemetry ingestion.
-type TelemetryCreateRequest = ingestion.TelemetryInput
+type telemetryCreateRequest struct {
+	ParameterType domain.ParameterType `json:"parameterType"`
+	Value         float64              `json:"value"`
+	Unit          domain.Unit          `json:"unit"`
+	SourceID      domain.SourceID      `json:"sourceId"`
+	MeasuredAt    time.Time            `json:"measuredAt"`
+}
+
+// TelemetryCreateRequest describes the payload for telemetry usecase.
+type TelemetryCreateRequest = telemetry.Input
 
 // TelemetryCreateResponse describes the result of telemetry processing.
-type TelemetryCreateResponse = ingestion.TelemetryResult
+type TelemetryCreateResponse = telemetry.Result
 
 // TelemetryHandler handles telemetry API requests.
 type TelemetryHandler struct {
 	logger              *slog.Logger
-	ingestionService    *ingestion.Service
-	telemetryRepository storage.TelemetryRepository
-	setpointRepository  storage.SetpointRepository
+	telemetryService    *telemetry.Service
+	telemetryRepository ports.TelemetryRepository
+	setpointRepository  ports.SetpointRepository
 }
 
-// NewTelemetryHandler creates a telemetry HTTP handler.
-func NewTelemetryHandler(
-	logger *slog.Logger,
-	telemetryRepository storage.TelemetryRepository,
-	alertRepository storage.AlertRepository,
-	qualityRepository storage.QualityRepository,
-	setpoints []domain.Setpoint,
-) *TelemetryHandler {
-	setpointRepository := storage.NewMemorySetpointRepository(setpoints)
-	anomalyRepository := storage.NewMemoryAnomalyRepository()
-
-	ingestionService := ingestion.NewService(
-		logger,
-		telemetryRepository,
-		alertRepository,
-		qualityRepository,
-		setpointRepository,
-		anomalyRepository,
-	)
-
-	return NewTelemetryHandlerWithService(
-		logger,
-		ingestionService,
-		telemetryRepository,
-		setpointRepository,
-	)
-}
-
-// NewTelemetryHandlerWithService creates telemetry HTTP handler with existing ingestion service.
+// NewTelemetryHandlerWithService creates telemetry HTTP handler with existing usecase service.
 func NewTelemetryHandlerWithService(
 	logger *slog.Logger,
-	service *ingestion.Service,
-	telemetryRepository storage.TelemetryRepository,
-	setpointRepository storage.SetpointRepository,
+	service *telemetry.Service,
+	telemetryRepository ports.TelemetryRepository,
+	setpointRepository ports.SetpointRepository,
 ) *TelemetryHandler {
 	return &TelemetryHandler{
 		logger:              logger,
-		ingestionService:    service,
+		telemetryService:    service,
 		telemetryRepository: telemetryRepository,
 		setpointRepository:  setpointRepository,
 	}
@@ -94,9 +75,9 @@ func (h *TelemetryHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) 
 		return
 	}
 
-	result, err := h.ingestionService.Process(r.Context(), req)
+	result, err := h.telemetryService.Process(r.Context(), req)
 	if err != nil {
-		if ingestion.IsValidationError(err) {
+		if telemetry.IsValidationError(err) {
 			writeErrorWithDetails(
 				w,
 				nethttp.StatusBadRequest,
@@ -151,5 +132,15 @@ func validationDetailsFromMessage(message string) map[string]string {
 		return map[string]string{
 			"reason": message,
 		}
+	}
+}
+
+func (r telemetryCreateRequest) toUsecaseInput() telemetry.Input {
+	return telemetry.Input{
+		ParameterType: r.ParameterType,
+		Value:         r.Value,
+		Unit:          r.Unit,
+		SourceID:      r.SourceID,
+		MeasuredAt:    r.MeasuredAt,
 	}
 }

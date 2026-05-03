@@ -3,30 +3,31 @@ package httpadapter
 import (
 	"encoding/json"
 	"errors"
+	"extrusion-quality-system/internal/domain"
+	"extrusion-quality-system/internal/ports"
 	"log/slog"
 	nethttp "net/http"
 	"strconv"
 	"strings"
 
-	authservice "extrusion-quality-system/internal/auth"
-	"extrusion-quality-system/internal/domain"
-	"extrusion-quality-system/internal/storage"
-
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type UserHandler struct {
+	passwordHasher ports.PasswordHasher
 	logger         *slog.Logger
-	userRepository storage.UserRepository
+	userRepository ports.UserRepository
 }
 
 func NewUserHandler(
 	logger *slog.Logger,
-	userRepository storage.UserRepository,
+	userRepository ports.UserRepository,
+	passwordHasher ports.PasswordHasher,
 ) *UserHandler {
 	return &UserHandler{
 		logger:         logger,
 		userRepository: userRepository,
+		passwordHasher: passwordHasher,
 	}
 }
 
@@ -73,7 +74,7 @@ func (h *UserHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	passwordHash, err := authservice.HashPassword(request.Password)
+	passwordHash, err := h.passwordHasher.Hash(request.Password)
 	if err != nil {
 		h.logger.Error("hash password failed", "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to create user")
@@ -89,7 +90,7 @@ func (h *UserHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 	created, err := h.userRepository.Create(r.Context(), user)
 	if err != nil {
-		if isUniqueViolation(err) || errors.Is(err, storage.ErrMemoryUserAlreadyExists) {
+		if isUniqueViolation(err) {
 			writeError(w, nethttp.StatusConflict, "user already exists")
 			return
 		}
@@ -101,10 +102,10 @@ func (h *UserHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 	h.logger.Info(
 		"user created",
-		"userId", user.ID,
-		"username", user.Username,
-		"role", user.Role,
-		"isActive", user.IsActive,
+		"userId", created.ID,
+		"username", created.Username,
+		"role", created.Role,
+		"isActive", created.IsActive,
 	)
 
 	writeJSON(w, nethttp.StatusCreated, created)
@@ -253,7 +254,7 @@ func (h *UserHandler) ResetPassword(
 		return
 	}
 
-	passwordHash, err := authservice.HashPassword(request.Password)
+	passwordHash, err := h.passwordHasher.Hash(request.Password)
 	if err != nil {
 		h.logger.Error("hash password failed", "id", id, "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to reset password")

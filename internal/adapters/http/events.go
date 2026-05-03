@@ -1,9 +1,8 @@
 package httpadapter
 
 import (
-	"encoding/json"
 	"extrusion-quality-system/internal/domain"
-	"extrusion-quality-system/internal/storage"
+	"extrusion-quality-system/internal/ports"
 	"log/slog"
 	nethttp "net/http"
 	"strconv"
@@ -13,11 +12,11 @@ import (
 // EventHandler handles alert event API requests.
 type EventHandler struct {
 	logger          *slog.Logger
-	alertRepository storage.AlertRepository
+	alertRepository ports.AlertRepository
 }
 
 // NewEventHandler creates an alert event HTTP handler.
-func NewEventHandler(logger *slog.Logger, alertRepository storage.AlertRepository) *EventHandler {
+func NewEventHandler(logger *slog.Logger, alertRepository ports.AlertRepository) *EventHandler {
 	return &EventHandler{
 		logger:          logger,
 		alertRepository: alertRepository,
@@ -131,19 +130,15 @@ func (h *EventHandler) Active(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 // Action handles alert event actions, such as acknowledge and resolve.
 func (h *EventHandler) Action(w nethttp.ResponseWriter, r *nethttp.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-
 	if r.Method != nethttp.MethodPost {
 		w.Header().Set("Allow", nethttp.MethodPost)
-		w.WriteHeader(nethttp.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		writeError(w, nethttp.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	alertID, action, ok := parseEventActionPath(r.URL.Path)
 	if !ok {
-		w.WriteHeader(nethttp.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+		writeError(w, nethttp.StatusNotFound, "not found")
 		return
 	}
 
@@ -159,22 +154,19 @@ func (h *EventHandler) Action(w nethttp.ResponseWriter, r *nethttp.Request) {
 		h.resolve(w, r, alertID)
 
 	default:
-		w.WriteHeader(nethttp.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+		writeError(w, nethttp.StatusNotFound, "not found")
 	}
 }
 
 func canResolveEvent(w nethttp.ResponseWriter, r *nethttp.Request) bool {
 	user, ok := CurrentUser(r.Context())
 	if !ok {
-		w.WriteHeader(nethttp.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		writeError(w, nethttp.StatusUnauthorized, "unauthorized")
 		return false
 	}
 
 	if user.Role != domain.UserRoleTechnologist && user.Role != domain.UserRoleAdmin {
-		w.WriteHeader(nethttp.StatusForbidden)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden"})
+		writeError(w, nethttp.StatusForbidden, "forbidden")
 		return false
 	}
 

@@ -1,8 +1,8 @@
 package httpadapter
 
 import (
-	"extrusion-quality-system/internal/analytics"
-	"extrusion-quality-system/internal/storage"
+	"extrusion-quality-system/internal/ports"
+	"extrusion-quality-system/internal/usecase/quality"
 	"log/slog"
 	nethttp "net/http"
 )
@@ -10,11 +10,11 @@ import (
 // QualityHandler handles quality index API requests.
 type QualityHandler struct {
 	logger            *slog.Logger
-	qualityRepository storage.QualityRepository
+	qualityRepository ports.QualityRepository
 }
 
 // NewQualityHandler creates a quality index HTTP handler.
-func NewQualityHandler(logger *slog.Logger, qualityRepository storage.QualityRepository) *QualityHandler {
+func NewQualityHandler(logger *slog.Logger, qualityRepository ports.QualityRepository) *QualityHandler {
 	return &QualityHandler{
 		logger:            logger,
 		qualityRepository: qualityRepository,
@@ -42,9 +42,9 @@ func (h *QualityHandler) Latest(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	if !found {
-		qualityIndex = analytics.CalculateQualityIndex(
+		qualityIndex = quality.CalculateIndex(
 			nil,
-			analytics.DefaultQualityWeights(),
+			quality.DefaultWeights(),
 		)
 	}
 

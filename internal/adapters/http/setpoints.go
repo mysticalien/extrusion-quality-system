@@ -3,23 +3,22 @@ package httpadapter
 import (
 	"encoding/json"
 	"extrusion-quality-system/internal/domain"
+	"extrusion-quality-system/internal/ports"
 	"fmt"
 	"log/slog"
 	nethttp "net/http"
 	"strconv"
 	"strings"
-
-	"extrusion-quality-system/internal/storage"
 )
 
 type SetpointHandler struct {
 	logger             *slog.Logger
-	setpointRepository storage.SetpointRepository
+	setpointRepository ports.SetpointRepository
 }
 
 func NewSetpointHandler(
 	logger *slog.Logger,
-	setpointRepository storage.SetpointRepository,
+	setpointRepository ports.SetpointRepository,
 ) *SetpointHandler {
 	return &SetpointHandler{
 		logger:             logger,
@@ -28,31 +27,20 @@ func NewSetpointHandler(
 }
 
 func (h *SetpointHandler) List(w nethttp.ResponseWriter, r *nethttp.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-
 	if r.Method != nethttp.MethodGet {
 		w.Header().Set("Allow", nethttp.MethodGet)
-		w.WriteHeader(nethttp.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "method not allowed",
-		})
+		writeError(w, nethttp.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	setpoints, err := h.setpointRepository.All(r.Context())
 	if err != nil {
 		h.logger.Error("load setpoints failed", "error", err)
-
-		w.WriteHeader(nethttp.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "failed to load setpoints",
-		})
+		writeError(w, nethttp.StatusInternalServerError, "failed to load setpoints")
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(setpoints); err != nil {
-		h.logger.Error("write setpoints response failed", "error", err)
-	}
+	writeJSON(w, nethttp.StatusOK, setpoints)
 }
 
 func (h *SetpointHandler) Update(w nethttp.ResponseWriter, r *nethttp.Request) {

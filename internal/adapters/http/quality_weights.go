@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"encoding/json"
 	"errors"
+	"extrusion-quality-system/internal/ports"
 	"fmt"
 	"log/slog"
 	nethttp "net/http"
@@ -10,17 +11,16 @@ import (
 	"strings"
 
 	"extrusion-quality-system/internal/domain"
-	"extrusion-quality-system/internal/storage"
 )
 
 type QualityWeightHandler struct {
 	logger                  *slog.Logger
-	qualityWeightRepository storage.QualityWeightRepository
+	qualityWeightRepository ports.QualityWeightRepository
 }
 
 func NewQualityWeightHandler(
 	logger *slog.Logger,
-	qualityWeightRepository storage.QualityWeightRepository,
+	qualityWeightRepository ports.QualityWeightRepository,
 ) *QualityWeightHandler {
 	return &QualityWeightHandler{
 		logger:                  logger,
@@ -42,6 +42,7 @@ func (h *QualityWeightHandler) List(w nethttp.ResponseWriter, r *nethttp.Request
 
 	weights, err := h.qualityWeightRepository.List(r.Context())
 	if err != nil {
+		h.logger.Error("load quality weights failed", "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to load quality weights")
 		return
 	}
@@ -114,6 +115,7 @@ func (h *QualityWeightHandler) Update(w nethttp.ResponseWriter, r *nethttp.Reque
 		updatedBy,
 	)
 	if err != nil {
+		h.logger.Error("update quality weight failed", "id", id, "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to update quality weight")
 		return
 	}

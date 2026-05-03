@@ -4,20 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"extrusion-quality-system/internal/domain"
+	"extrusion-quality-system/internal/usecase/telemetry"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"extrusion-quality-system/internal/config"
-	"extrusion-quality-system/internal/ingestion"
 
 	"github.com/segmentio/kafka-go"
 )
 
+type telemetryMessage struct {
+	ParameterType domain.ParameterType `json:"parameterType"`
+	Value         float64              `json:"value"`
+	Unit          domain.Unit          `json:"unit"`
+	SourceID      domain.SourceID      `json:"sourceId"`
+	MeasuredAt    time.Time            `json:"measuredAt"`
+}
+
 type Consumer struct {
 	logger           *slog.Logger
 	reader           *kafka.Reader
-	ingestionService *ingestion.Service
+	telemetryService *telemetry.Service
 	retryDelay       time.Duration
 	topic            string
 	groupID          string
@@ -26,7 +35,7 @@ type Consumer struct {
 func NewConsumer(
 	logger *slog.Logger,
 	cfg config.KafkaConfig,
-	ingestionService *ingestion.Service,
+	telemetryService *telemetry.Service,
 ) *Consumer {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:  cfg.BrokerList(),
@@ -40,7 +49,7 @@ func NewConsumer(
 	return &Consumer{
 		logger:           logger,
 		reader:           reader,
-		ingestionService: ingestionService,
+		telemetryService: telemetryService,
 		retryDelay:       cfg.RetryDelay,
 		topic:            cfg.TelemetryTopic,
 		groupID:          cfg.ConsumerGroup,
@@ -81,7 +90,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 				"error", err,
 			)
 
-			if ingestion.IsValidationError(err) {
+			if telemetry.IsValidationError(err) {
 				if commitErr := c.reader.CommitMessages(ctx, message); commitErr != nil {
 					c.logger.Error(
 						"commit invalid kafka message failed",
@@ -120,7 +129,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 }
 
 func (c *Consumer) handleMessage(ctx context.Context, message kafka.Message) error {
-	var input ingestion.TelemetryInput
+	var input telemetryMessage
 
 	if err := json.Unmarshal(message.Value, &input); err != nil {
 		if commitErr := c.reader.CommitMessages(ctx, message); commitErr != nil {
@@ -146,7 +155,7 @@ func (c *Consumer) handleMessage(ctx context.Context, message kafka.Message) err
 		"measuredAt", input.MeasuredAt,
 	)
 
-	_, err := c.ingestionService.Process(ctx, input)
+	_, err := c.telemetryService.Process(ctx, input.toUsecaseInput())
 	if err != nil {
 		return err
 	}
@@ -160,4 +169,14 @@ func (c *Consumer) Close() error {
 	}
 
 	return c.reader.Close()
+}
+
+func (m telemetryMessage) toUsecaseInput() telemetry.Input {
+	return telemetry.Input{
+		ParameterType: m.ParameterType,
+		Value:         m.Value,
+		Unit:          m.Unit,
+		SourceID:      m.SourceID,
+		MeasuredAt:    m.MeasuredAt,
+	}
 }

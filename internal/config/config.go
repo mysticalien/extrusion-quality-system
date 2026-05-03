@@ -45,8 +45,10 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	TokenSecret string        `env:"JWT_SECRET" env-default:"local-dev-secret-change-me"`
+	TokenSecret string        `env:"JWT_SECRET" env-default:"local-development-secret-change-me-32-chars-min"`
 	TokenTTL    time.Duration `env:"JWT_TOKEN_TTL" env-default:"24h"`
+	TokenIssuer string        `env:"AUTH_TOKEN_ISSUER" env-default:"extrusion-quality-system"`
+	BcryptCost  int           `env:"AUTH_BCRYPT_COST" env-default:"10"`
 }
 
 type MQTTConfig struct {
@@ -144,6 +146,14 @@ func validate(cfg Config) error {
 
 	if cfg.Auth.TokenTTL <= 0 {
 		return fmt.Errorf("JWT_TOKEN_TTL must be positive")
+	}
+
+	if cfg.Auth.TokenIssuer == "" {
+		return fmt.Errorf("AUTH_TOKEN_ISSUER must not be empty")
+	}
+
+	if cfg.Auth.BcryptCost < 4 || cfg.Auth.BcryptCost > 16 {
+		return fmt.Errorf("AUTH_BCRYPT_COST must be between 4 and 16")
 	}
 
 	if cfg.MQTT.WorkerCount <= 0 {

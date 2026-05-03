@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"extrusion-quality-system/internal/ports"
+	"extrusion-quality-system/internal/security/token"
+	"extrusion-quality-system/internal/usecase/auth"
 	"log/slog"
 	nethttp "net/http"
 	"strings"
 
-	authservice "extrusion-quality-system/internal/auth"
 	"extrusion-quality-system/internal/domain"
-	"extrusion-quality-system/internal/storage"
 )
 
 type contextKey string
@@ -18,9 +19,9 @@ type contextKey string
 const currentUserContextKey contextKey = "currentUser"
 
 type AuthHandler struct {
-	logger         *slog.Logger
-	userRepository storage.UserRepository
-	tokenManager   *authservice.TokenManager
+	logger       *slog.Logger
+	authService  *auth.Service
+	tokenManager ports.TokenManager
 }
 
 type loginRequest struct {
@@ -35,13 +36,13 @@ type loginResponse struct {
 
 func NewAuthHandler(
 	logger *slog.Logger,
-	userRepository storage.UserRepository,
-	tokenManager *authservice.TokenManager,
+	authService *auth.Service,
+	tokenManager ports.TokenManager,
 ) *AuthHandler {
 	return &AuthHandler{
-		logger:         logger,
-		userRepository: userRepository,
-		tokenManager:   tokenManager,
+		logger:       logger,
+		authService:  authService,
+		tokenManager: tokenManager,
 	}
 }
 
@@ -64,47 +65,37 @@ func (h *AuthHandler) Login(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	h.logger.Debug(
-		"login attempt",
-		"username", request.Username,
-	)
+	h.logger.Debug("login attempt", "username", request.Username)
 
-	user, found, err := h.userRepository.FindByUsername(r.Context(), strings.TrimSpace(request.Username))
+	result, err := h.authService.Login(r.Context(), auth.LoginInput{
+		Username: request.Username,
+		Password: request.Password,
+	})
 	if err != nil {
-		h.logger.Error("find user failed", "username", request.Username, "error", err)
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			h.logger.Warn(
+				"login failed",
+				"username", request.Username,
+				"reason", "invalid credentials",
+			)
+
+			writeError(w, nethttp.StatusUnauthorized, "invalid username or password")
+			return
+		}
+
+		h.logger.Error("login failed", "username", request.Username, "error", err)
 		writeError(w, nethttp.StatusInternalServerError, "failed to login")
-		return
-	}
-
-	if !found || !user.IsActive || !authservice.CheckPassword(request.Password, user.PasswordHash) {
-		h.logger.Warn(
-			"login failed",
-			"username", request.Username,
-			"reason", "invalid credentials",
-		)
-
-		writeError(w, nethttp.StatusUnauthorized, "invalid username or password")
-		return
-	}
-
-	token, err := h.tokenManager.Generate(user)
-	if err != nil {
-		h.logger.Error("generate token failed", "username", user.Username, "error", err)
-		writeError(w, nethttp.StatusInternalServerError, "failed to generate token")
 		return
 	}
 
 	h.logger.Info(
 		"login succeeded",
-		"userId", user.ID,
-		"username", user.Username,
-		"role", user.Role,
+		"userId", result.User.ID,
+		"username", result.User.Username,
+		"role", result.User.Role,
 	)
 
-	writeJSON(w, nethttp.StatusOK, loginResponse{
-		Token: token,
-		User:  user,
-	})
+	writeJSON(w, nethttp.StatusOK, result)
 }
 
 func (h *AuthHandler) Me(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -125,8 +116,8 @@ func (h *AuthHandler) Me(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func AuthMiddleware(
 	logger *slog.Logger,
-	tokenManager *authservice.TokenManager,
-	userRepository storage.UserRepository,
+	tokenManager ports.TokenManager,
+	userRepository ports.UserRepository,
 ) func(nethttp.Handler) nethttp.Handler {
 	return func(next nethttp.Handler) nethttp.Handler {
 		return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -144,21 +135,20 @@ func AuthMiddleware(
 
 			claims, err := tokenManager.Parse(rawToken)
 			if err != nil {
-				status := nethttp.StatusUnauthorized
 				message := "invalid authorization token"
+
+				if errors.Is(err, token.ErrExpiredToken) {
+					message = "authorization token expired"
+				}
 
 				logger.Warn(
 					"authorization failed",
-					"reason", "invalid authorization token",
+					"reason", message,
 					"method", r.Method,
 					"path", r.URL.Path,
 				)
 
-				if errors.Is(err, authservice.ErrExpiredToken) {
-					message = "authorization token expired"
-				}
-
-				writeError(w, status, message)
+				writeError(w, nethttp.StatusUnauthorized, message)
 				return
 			}
 
@@ -238,44 +228,33 @@ func (h *AuthHandler) ChangePassword(w nethttp.ResponseWriter, r *nethttp.Reques
 		return
 	}
 
-	user, found, err := h.userRepository.FindByID(r.Context(), currentUser.ID)
-	if err != nil {
-		h.logger.Error("load current user failed", "userId", currentUser.ID, "error", err)
-		writeError(w, nethttp.StatusInternalServerError, "failed to load current user")
-		return
-	}
-
-	if !found || !user.IsActive {
-		writeError(w, nethttp.StatusUnauthorized, "user is inactive or not found")
-		return
-	}
-
-	if !authservice.CheckPassword(request.OldPassword, user.PasswordHash) {
-		writeError(w, nethttp.StatusUnauthorized, "old password is incorrect")
-		return
-	}
-
-	newPasswordHash, err := authservice.HashPassword(request.NewPassword)
-	if err != nil {
-		h.logger.Error("hash new password failed", "userId", currentUser.ID, "error", err)
-		writeError(w, nethttp.StatusInternalServerError, "failed to change password")
-		return
-	}
-
-	updatedUser, found, err := h.userRepository.UpdatePassword(
+	updatedUser, err := h.authService.ChangePassword(
 		r.Context(),
-		currentUser.ID,
-		newPasswordHash,
+		auth.ChangePasswordInput{
+			UserID:      currentUser.ID,
+			OldPassword: request.OldPassword,
+			NewPassword: request.NewPassword,
+		},
 	)
 	if err != nil {
-		h.logger.Error("change password failed", "userId", currentUser.ID, "error", err)
-		writeError(w, nethttp.StatusInternalServerError, "failed to change password")
-		return
-	}
+		switch {
+		case errors.Is(err, auth.ErrOldPasswordIncorrect):
+			writeError(w, nethttp.StatusUnauthorized, "old password is incorrect")
+			return
 
-	if !found {
-		writeError(w, nethttp.StatusNotFound, "user not found")
-		return
+		case errors.Is(err, auth.ErrNewPasswordSameAsOld):
+			writeError(w, nethttp.StatusBadRequest, "new password must be different from old password")
+			return
+
+		case errors.Is(err, auth.ErrUserInactiveOrNotFound):
+			writeError(w, nethttp.StatusUnauthorized, "user is inactive or not found")
+			return
+
+		default:
+			h.logger.Error("change password failed", "userId", currentUser.ID, "error", err)
+			writeError(w, nethttp.StatusInternalServerError, "failed to change password")
+			return
+		}
 	}
 
 	writeJSON(w, nethttp.StatusOK, updatedUser)

@@ -85,6 +85,8 @@
 
 ER-диаграмма и структура базы данных в DataGrip. Используется для проверки таблиц, связей и ограничений.
 
+![ER диаграмма](docs/assets/diagrams/er.png)
+
 ![DataGrip](docs/assets/screens/datagrip.png)
 
 ### Пример таблицы уставок

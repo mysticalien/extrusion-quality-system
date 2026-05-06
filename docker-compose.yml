@@ -134,29 +134,29 @@ services:
       retries: 20
     command: ["/app/server"]
 
-#  telemetry-simulator:
-#    build:
-#      context: .
-#    container_name: ${SIMULATOR_CONTAINER_NAME:-extrusion_telemetry_simulator}
-#    depends_on:
-#      backend:
-#        condition: service_healthy
-#      mqtt:
-#        condition: service_started
-#    environment:
-#      LOG_LEVEL: ${LOG_LEVEL:-info}
-#
-#      SIMULATOR_INTERVAL: ${SIMULATOR_INTERVAL:-2s}
-#      SIMULATOR_REQUEST_TIMEOUT: ${SIMULATOR_REQUEST_TIMEOUT:-10s}
-#      SIMULATOR_SOURCE_ID: ${SIMULATOR_SOURCE_ID:-mqtt-simulator}
-#
-#      SIMULATOR_MODE: ${SIMULATOR_MODE:-anomaly}
-#      SIMULATOR_MQTT_BROKER_URL: tcp://mqtt:1883
-#      SIMULATOR_MQTT_CLIENT_ID: ${SIMULATOR_MQTT_CLIENT_ID:-extrusion-simulator}
-#      SIMULATOR_MQTT_TOPIC: ${SIMULATOR_MQTT_TOPIC:-extrusion/telemetry/readings}
-#      SIMULATOR_MQTT_QOS: ${SIMULATOR_MQTT_QOS:-0}
-#      SIMULATOR_MQTT_TIMEOUT: ${SIMULATOR_MQTT_TIMEOUT:-10s}
-#    command: ["/app/simulator"]
+  telemetry-simulator:
+    build:
+      context: .
+    container_name: ${SIMULATOR_CONTAINER_NAME:-extrusion_telemetry_simulator}
+    depends_on:
+      backend:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      SIMULATOR_INTERVAL: ${SIMULATOR_INTERVAL:-2s}
+      SIMULATOR_REQUEST_TIMEOUT: ${SIMULATOR_REQUEST_TIMEOUT:-10s}
+      SIMULATOR_SOURCE_ID: ${SIMULATOR_SOURCE_ID:-mqtt-simulator}
+
+      SIMULATOR_MODE: ${SIMULATOR_MODE:-anomaly}
+      SIMULATOR_MQTT_BROKER_URL: tcp://mqtt:1883
+      SIMULATOR_MQTT_CLIENT_ID: ${SIMULATOR_MQTT_CLIENT_ID:-extrusion-simulator}
+      SIMULATOR_MQTT_TOPIC: ${SIMULATOR_MQTT_TOPIC:-extrusion/telemetry/readings}
+      SIMULATOR_MQTT_QOS: ${SIMULATOR_MQTT_QOS:-0}
+      SIMULATOR_MQTT_TIMEOUT: ${SIMULATOR_MQTT_TIMEOUT:-10s}
+    command: ["/app/simulator"]
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
